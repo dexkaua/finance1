@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import type { Account, TransactionInput, TxKind } from "../../types";
+import type { Account, CreditCard, TransactionInput, TxKind } from "../../types";
 import { useFinance } from "../../contexts/FinanceContext";
 import { useToast } from "../../contexts/ToastContext";
 import { parseCsv, parseCsvAmount, parseCsvDate } from "../../utils/csv";
 import { normalizeText } from "../../utils/finance";
 import { Badge, ProgressBar } from "../ui/Display";
 import { Button } from "../ui/Button";
-import { Field, SelectInput } from "../ui/FormControls";
+import { Checkbox, Field, SelectInput, TextInput } from "../ui/FormControls";
 import { Modal } from "../ui/Modal";
 import { IconAlert } from "../ui/icons";
 
@@ -15,6 +15,7 @@ interface Mapping {
   description: string;
   amount: string;
   kind: string;
+  installments: string;
 }
 
 type Step = "file" | "mapping" | "review";
@@ -22,15 +23,17 @@ type Step = "file" | "mapping" | "review";
 export function CsvImportModal({
   open,
   accounts,
+  cards,
   defaultAccountId,
   onClose,
 }: {
   open: boolean;
   accounts: Account[];
+  cards: CreditCard[];
   defaultAccountId: string;
   onClose: () => void;
 }) {
-  const { importTransactions, transactions } = useFinance();
+  const { importTransactions, createInstallmentPurchase, transactions, cards: allCards } = useFinance();
   const { push } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -38,9 +41,11 @@ export function CsvImportModal({
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
-  const [mapping, setMapping] = useState<Mapping>({ date: "", description: "", amount: "", kind: "" });
+  const [mapping, setMapping] = useState<Mapping>({ date: "", description: "", amount: "", kind: "", installments: "" });
   const [accountId, setAccountId] = useState(defaultAccountId);
+  const [cardId, setCardId] = useState<string>("");
   const [defaultKind, setDefaultKind] = useState<TxKind>("despesa");
+  const [isCreditCardImport, setIsCreditCardImport] = useState(false);
   const [importing, setImporting] = useState(false);
 
   const reset = () => {
@@ -48,9 +53,11 @@ export function CsvImportModal({
     setFileName("");
     setHeaders([]);
     setRows([]);
-    setMapping({ date: "", description: "", amount: "", kind: "" });
+    setMapping({ date: "", description: "", amount: "", kind: "", installments: "" });
     setAccountId(defaultAccountId);
+    setCardId("");
     setDefaultKind("despesa");
+    setIsCreditCardImport(false);
   };
 
   const handleFile = (file: File) => {
@@ -74,6 +81,7 @@ export function CsvImportModal({
           amount:
             parsed.headers[lower.findIndex((h) => h.includes("valor") || h.includes("amount"))] ?? "",
           kind: parsed.headers[lower.findIndex((h) => h.includes("tipo"))] ?? "",
+          installments: parsed.headers[lower.findIndex((h) => h.includes("parcel") || h.includes("vez"))] ?? "",
         });
         setStep("mapping");
       } catch {
@@ -89,8 +97,9 @@ export function CsvImportModal({
     const dsi = headers.indexOf(mapping.description);
     const ai = headers.indexOf(mapping.amount);
     const ki = mapping.kind ? headers.indexOf(mapping.kind) : -1;
+    const ii = mapping.installments ? headers.indexOf(mapping.installments) : -1;
 
-    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null }> =
+    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null; installments?: number }> =
       rows.map((row) => {
         const date = parseCsvDate(row[di] ?? "");
         const description = (row[dsi] ?? "").trim();
@@ -102,6 +111,12 @@ export function CsvImportModal({
             : kindCell.includes("aporte")
               ? "aporte"
               : defaultKind;
+
+        let installments: number | undefined;
+        if (isCreditCardImport && ii >= 0) {
+          const instVal = parseInt(row[ii]?.replace(/[^0-9]/g, "") || "1", 10);
+          if (!isNaN(instVal) && instVal > 1) installments = instVal;
+        }
 
         if (!date) return { input: null, duplicate: false, invalid: "Data inválida" };
         if (description.length < 2) return { input: null, duplicate: false, invalid: "Sem descrição" };
@@ -119,19 +134,21 @@ export function CsvImportModal({
             amount,
             categoryId: kind === "receita" ? "outras-receitas" : "outras-despesas",
             date,
-            accountId,
-            paymentMethod: "transferencia",
+            accountId: isCreditCardImport && cardId ? cardId : accountId,
+            paymentMethod: isCreditCardImport ? "credito" : "transferencia",
+            cardId: isCreditCardImport && cardId ? cardId : undefined,
             note: `Importado de ${fileName}.`,
           },
           duplicate,
           invalid: null,
+          installments,
         };
       });
     const valid = items.filter((i) => i.input && !i.duplicate);
     const duplicates = items.filter((i) => i.duplicate);
     const invalid = items.filter((i) => i.invalid);
     return { items, valid, duplicates, invalid };
-  }, [step, mapping, headers, rows, defaultKind, accountId, transactions, fileName]);
+  }, [step, mapping, headers, rows, defaultKind, accountId, isCreditCardImport, cardId, transactions, fileName]);
 
   const stepIndex = step === "file" ? 0 : step === "mapping" ? 1 : 2;
 
@@ -171,9 +188,29 @@ export function CsvImportModal({
               onClick={() => {
                 if (!preview) return;
                 setImporting(true);
-                const count = importTransactions(
-                  preview.valid.map((v) => v.input as TransactionInput),
-                );
+                
+                let count = 0;
+                const validItems = preview.valid;
+                
+                if (isCreditCardImport && cardId) {
+                  // Processar como importação de cartão de crédito com parcelas
+                  validItems.forEach((item) => {
+                    const input = item.input as TransactionInput;
+                    const installments = item.installments;
+                    
+                    if (installments && installments > 1) {
+                      createInstallmentPurchase(input, installments);
+                      count += installments;
+                    } else {
+                      importTransactions([input]);
+                      count += 1;
+                    }
+                  });
+                } else {
+                  // Importação normal
+                  count = importTransactions(validItems.map((v) => v.input as TransactionInput));
+                }
+                
                 window.setTimeout(() => {
                   setImporting(false);
                   push("success", "Importação concluída", `${count} lançamentos importados; ${preview.duplicates.length} duplicadas ignoradas.`);
@@ -241,7 +278,29 @@ export function CsvImportModal({
             <strong className="text-ink">{fileName}</strong> — {rows.length} linhas encontradas.
             Mapeie as colunas do arquivo:
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          
+          <div className="rounded-lg border border-pine-500/30 bg-pine-500/5 p-3">
+            <Checkbox
+              id="credit-card-import"
+              checked={isCreditCardImport}
+              onChange={(e) => setIsCreditCardImport(e.target.checked)}
+              label="Importar como fatura de cartão de crédito"
+              description="Se marcado, você poderá selecionar o cartão e identificar parcelas para lançar nas próximas faturas."
+            />
+          </div>
+          
+          {isCreditCardImport && (
+            <Field id="map-card" label="Cartão de crédito">
+              <SelectInput id="map-card" value={cardId} onChange={(e) => setCardId(e.target.value)}>
+                <option value="">Selecione o cartão…</option>
+                {cards.map((card) => (
+                  <option key={card.id} value={card.id}>{card.name} ({card.bank})</option>
+                ))}
+              </SelectInput>
+            </Field>
+          )}
+          
+          <div className={`grid ${isCreditCardImport ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
             <Field id="map-date" label="Coluna de data">
               <SelectInput id="map-date" value={mapping.date} onChange={(e) => setMapping((m) => ({ ...m, date: e.target.value }))}>
                 <option value="">Selecione…</option>
@@ -275,19 +334,36 @@ export function CsvImportModal({
               </SelectInput>
             </Field>
             <Field id="map-account" label="Conta de destino">
-              <SelectInput id="map-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <SelectInput 
+                id="map-account" 
+                value={accountId} 
+                onChange={(e) => setAccountId(e.target.value)}
+                disabled={isCreditCardImport && !!cardId}
+              >
                 {accounts.map((account) => (
                   <option key={account.id} value={account.id}>{account.institution}</option>
                 ))}
               </SelectInput>
             </Field>
-            <Field id="map-default-kind" label="Tipo padrão">
-              <SelectInput id="map-default-kind" value={defaultKind} onChange={(e) => setDefaultKind(e.target.value as TxKind)}>
-                <option value="despesa">Despesa</option>
-                <option value="receita">Receita</option>
-                <option value="aporte">Aporte</option>
-              </SelectInput>
-            </Field>
+            {!isCreditCardImport && (
+              <Field id="map-default-kind" label="Tipo padrão">
+                <SelectInput id="map-default-kind" value={defaultKind} onChange={(e) => setDefaultKind(e.target.value as TxKind)}>
+                  <option value="despesa">Despesa</option>
+                  <option value="receita">Receita</option>
+                  <option value="aporte">Aporte</option>
+                </SelectInput>
+              </Field>
+            )}
+            {isCreditCardImport && mapping.installments && (
+              <Field id="map-installments" label="Coluna de parcelas (opcional)">
+                <SelectInput id="map-installments" value={mapping.installments} onChange={(e) => setMapping((m) => ({ ...m, installments: e.target.value }))}>
+                  <option value="">Sem coluna de parcelas</option>
+                  {headers.map((header) => (
+                    <option key={header} value={header}>{header}</option>
+                  ))}
+                </SelectInput>
+              </Field>
+            )}
           </div>
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[480px] text-left text-xs">

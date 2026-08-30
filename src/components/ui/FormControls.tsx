@@ -34,6 +34,30 @@ export function Field({
   );
 }
 
+export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
+  label: string;
+  description?: string;
+}
+
+export function Checkbox({ label, description, id, className = "", ...rest }: CheckboxProps) {
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3">
+      <input
+        id={id}
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 rounded border-line bg-card text-pine-600 focus:ring-pine-500/25"
+        {...rest}
+      />
+      <div className="flex-1">
+        <span className="text-sm font-semibold text-ink">{label}</span>
+        {description ? (
+          <p className="text-xs text-mut">{description}</p>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
 function controlClass(invalid: boolean | undefined, extra = ""): string {
   return [
     "h-10 w-full rounded-lg border bg-card px-3 text-sm text-ink transition-colors",
