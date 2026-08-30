@@ -33,7 +33,7 @@ export function CsvImportModal({
   defaultAccountId: string;
   onClose: () => void;
 }) {
-  const { importTransactions, createInstallmentPurchase, transactions, cards: allCards } = useFinance();
+  const { importTransactions, createInstallmentPurchase, transactions } = useFinance();
   const { push } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 

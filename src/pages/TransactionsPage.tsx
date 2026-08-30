@@ -46,6 +46,7 @@ export function TransactionsPage() {
     status,
     transactions,
     accounts,
+    cards,
     cancelTransaction,
     reverseTransaction,
     reactivateTransaction,
