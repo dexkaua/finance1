@@ -83,7 +83,10 @@ export async function fetchAppData(): Promise<AppData> {
     automations: readCollection<Automation>(STORAGE_KEYS.automations),
     invoiceExtras: readCollection<InvoiceExtras>(STORAGE_KEYS.invoiceExtras),
     invoicePayments: readCollection<InvoicePayment>(STORAGE_KEYS.invoicePayments),
-    settings: storage.read<Settings>(STORAGE_KEYS.settings) ?? { ...DEFAULT_SETTINGS },
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(storage.read<Settings>(STORAGE_KEYS.settings) ?? {}),
+    },
   };
 }
 

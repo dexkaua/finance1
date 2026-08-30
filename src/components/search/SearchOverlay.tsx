@@ -10,6 +10,20 @@ function navigateTo(page: Page) {
   window.location.hash = `/${page}`;
 }
 
+/** Definido no nível do módulo: se fosse declarado dentro do componente,
+ *  ganharia identidade nova a cada keystroke e remontaria os resultados. */
+function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+  if (count === 0) return null;
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-mut">
+        {title} <span className="font-semibold text-mut/70">({count})</span>
+      </p>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
 export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { appData, openTransactionModal } = useFinance();
   const [query, setQuery] = useState("");
@@ -48,16 +62,6 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
     ? results.transactions.length + results.accounts.length + results.cards.length +
       results.investments.length + results.debts.length + results.goals.length + results.assets.length
     : 0;
-
-  const Section = ({ title, count, children }: { title: string; count: number; children: React.ReactNode }) =>
-    count > 0 ? (
-      <div>
-        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-mut">
-          {title} <span className="font-semibold text-mut/70">({count})</span>
-        </p>
-        <div className="space-y-1">{children}</div>
-      </div>
-    ) : null;
 
   return (
     <div className="fixed inset-0 z-[65] flex items-start justify-center p-4 pt-[12vh]">

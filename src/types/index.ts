@@ -417,6 +417,8 @@ export interface Settings {
   dashboardWidgets: Record<string, boolean>;
   ignoredGroups: string[];
   lastScore: number | null;
+  /** Nome informado no primeiro acesso — null enquanto não perguntado. */
+  userName: string | null;
 }
 
 /* ------------------------------ App data ------------------------------- */

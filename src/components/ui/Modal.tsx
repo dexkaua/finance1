@@ -15,11 +15,20 @@ export interface ModalProps {
 export function Modal({ open, onClose, title, subtitle, children, footer, size = "md" }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Ref para o callback: o efeito abaixo NÃO pode depender da identidade de
+  // `onClose` (que muda a cada render do pai). Se dependesse, cada tecla
+  // digitada num campo do formulário re-executaria o efeito e o
+  // `panelRef.focus()` roubaria o foco do input — este era o bug de
+  // "campo perde o foco a cada caractere".
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
@@ -29,7 +38,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

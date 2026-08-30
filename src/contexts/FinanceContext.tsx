@@ -28,6 +28,7 @@ import type {
   AuditEntry,
 } from "../types";
 import { fetchAppData, persistCollection } from "../services/api";
+import { DEFAULT_SETTINGS } from "../data/seed";
 import { STORAGE_KEYS } from "../services/storage";
 import { getCategory } from "../data/categories";
 import { addDaysISO, addMonthsISO, monthKeyOf, todayISO } from "../utils/date";
@@ -224,14 +225,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   }, [settings]);
 
   const safeSettings: Settings = useMemo(
-    () =>
-      settings ?? {
-        currency: "BRL",
-        benchmarks: { cdi: 13.15, selic: 13.25, ipca: 4.8, ibov: 9.5, sp500: 11.2 },
-        dashboardWidgets: {},
-        ignoredGroups: [],
-        lastScore: null,
-      },
+    () => settings ?? { ...DEFAULT_SETTINGS },
     [settings],
   );
 

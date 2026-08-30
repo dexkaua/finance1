@@ -72,6 +72,36 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/**
+ * Sanitiza um nome para uso em nomes de arquivo: remove acentos, espaços
+ * viram "_" e caracteres inválidos são descartados.
+ * Ex.: "João da Silva" → "Joao_da_Silva".
+ */
+export function sanitizeFileName(name: string): string {
+  const clean = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return clean || "usuario";
+}
+
+/**
+ * Nome de backup no padrão: backup.fin.NOME.DD-MM-AAAA_HH-mm.json
+ * O horário evita colisões quando houver mais de um backup no mesmo dia.
+ */
+export function backupFileName(userName: string | null, date: Date = new Date()): string {
+  const name = sanitizeFileName(userName ?? "");
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = pad(date.getDate());
+  const month = pad(date.getMonth() + 1);
+  const year = date.getFullYear();
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `backup.fin.${name}.${day}-${month}-${year}_${hours}-${minutes}.json`;
+}
+
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }

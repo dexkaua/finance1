@@ -5,12 +5,13 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
 import { persistAll } from "../services/api";
 import { LEGACY_KEYS, STORAGE_KEYS, storage } from "../services/storage";
-import { buildSeedData, emptyAppData } from "../data/seed";
+import { buildSeedData } from "../data/seed";
 import { downloadCsv, downloadJson } from "../utils/csv";
+import { backupFileName } from "../utils/format";
 import { categoryPath } from "../data/categories";
 import { Badge, Card, PageHeader, SectionHeader } from "../components/ui/Display";
 import { Button } from "../components/ui/Button";
-import { ConfirmDialog } from "../components/ui/Modal";
+import { ConfirmDialog, Modal } from "../components/ui/Modal";
 import { Field, SelectInput, Segmented, TextInput } from "../components/ui/FormControls";
 import { IconDownload, IconMoon, IconSun, IconAlert } from "../components/ui/icons";
 
@@ -42,11 +43,13 @@ export function SettingsPage() {
   };
 
   const exportFullJson = () => {
-    downloadJson(`vida-financeira-${new Date().toISOString().slice(0, 10)}.json`, {
+    // Padrão: backup.fin.NOME.DD-MM-AAAA_HH-mm.json (nome sanitizado automaticamente)
+    const filename = backupFileName(settings.userName);
+    downloadJson(filename, {
       ...appData,
       exportedAt: new Date().toISOString(),
     });
-    push("success", "Backup completo exportado", "JSON com todas as coleções, configurações e histórico de auditoria.");
+    push("success", "Backup completo exportado", `Arquivo ${filename} — com todas as coleções, configurações e histórico de auditoria.`);
   };
 
   const exportModuleCsv = (module: string) => {
@@ -304,8 +307,8 @@ export function SettingsPage() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-up" />
-                As chaves antigas (cf1:*) da versão 1 permanecem intactas como backup — a migração para v2
-                nunca apaga dados.
+                Em operação normal, as chaves antigas (cf1:*) permanecem intactas como backup da migração —
+                elas só são removidas quando você escolhe explicitamente “Zerar sistema”.
               </li>
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-up" />
@@ -320,7 +323,7 @@ export function SettingsPage() {
             </ul>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="danger" size="sm" icon={<IconAlert size={14} />} onClick={() => setConfirmReset(true)}>
-                Apagar tudo e recomeçar do zero
+                Zerar sistema
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setConfirmDemo(true)}>
                 Carregar dados de exemplo (opcional)
@@ -335,34 +338,62 @@ export function SettingsPage() {
         </Card>
       </div>
 
-      <ConfirmDialog
+      {/* Zerar sistema — operação destrutiva com confirmação reforçada */}
+      <Modal
         open={confirmReset}
-        title="Apagar tudo e recomeçar do zero"
-        confirmLabel="Apagar e reiniciar vazio"
-        loading={resetting}
-        message={
-          <p>
-            Isso remove <strong className="text-ink">todas</strong> as suas informações financeiras deste
-            navegador (transações, contas, cartões, investimentos, dívidas, metas…) e devolve o sistema ao
-            estado de instalação nova — todos os valores zerados. Faça um backup JSON antes, se precisar.
-          </p>
-        }
-        onCancel={() => setConfirmReset(false)}
-        onConfirm={() => {
-          setResetting(true);
-          window.setTimeout(() => {
-            Object.values(STORAGE_KEYS).forEach((key) => {
-              if (key !== STORAGE_KEYS.theme) storage.remove(key);
-            });
-            // Grava um estado explicitamente VAZIO para que nenhuma migração
-            // de dados antigos recrie registros após o reinício.
-            persistAll(emptyAppData(appData.settings));
-            storage.write(STORAGE_KEYS.seeded, true);
-            storage.write(STORAGE_KEYS.schemaVersion, 2);
-            window.location.reload();
-          }, 400);
+        onClose={() => {
+          if (!resetting) setConfirmReset(false);
         }}
-      />
+        title="Tem certeza que deseja zerar o sistema?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmReset(false)} disabled={resetting}>
+              Cancelar
+            </Button>
+            <Button variant="secondary" icon={<IconDownload size={15} />} onClick={exportFullJson} disabled={resetting}>
+              Exportar backup antes de zerar
+            </Button>
+            <Button
+              variant="danger"
+              loading={resetting}
+              onClick={() => {
+                setResetting(true);
+                window.setTimeout(() => {
+                  // Remoção COMPLETA: todas as chaves v2 E legadas v1.
+                  // Nada é regravado — o próximo acesso recria a estrutura
+                  // vazia e pergunta o nome novamente (instalação nova).
+                  const allKeys = new Set<string>([
+                    ...Object.values(STORAGE_KEYS),
+                    ...Object.values(LEGACY_KEYS),
+                  ]);
+                  allKeys.forEach((key) => storage.remove(key));
+                  window.location.reload();
+                }, 400);
+              }}
+            >
+              Zerar sistema
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-down/10 text-down">
+            <IconAlert size={20} />
+          </div>
+          <div className="space-y-2 text-sm leading-relaxed text-mut">
+            <p>
+              <strong className="text-ink">Todos os dados financeiros armazenados neste navegador serão removidos:</strong>{" "}
+              transações, contas, cartões, faturas, investimentos, dívidas, metas, bens, orçamentos,
+              recorrências, regras, configurações — e também o seu nome de usuário.
+            </p>
+            <p className="font-semibold text-down">Esta ação não poderá ser desfeita sem um backup.</p>
+            <p>
+              Após o reinício o sistema volta ao estado de instalação nova: tudo em R$ 0,00 e a pergunta
+              “Como você quer ser chamado?” na primeira tela.
+            </p>
+          </div>
+        </div>
+      </Modal>
 
       <ConfirmDialog
         open={confirmDemo}
@@ -372,8 +403,8 @@ export function SettingsPage() {
           <p>
             Isso preenche o sistema com um cenário fictício (contas, cartões, investimentos, dívidas e
             metas de demonstração) apenas para você explorar as telas.{" "}
-            <strong className="text-ink">Substitui os dados atuais.</strong> Depois você pode apagar tudo
-            em “Apagar tudo e recomeçar do zero”.
+            <strong className="text-ink">Substitui os dados atuais.</strong> Depois você pode remover tudo
+            em “Zerar sistema”.
           </p>
         }
         onCancel={() => setConfirmDemo(false)}

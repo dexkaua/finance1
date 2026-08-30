@@ -220,7 +220,11 @@ export function DashboardPage({ navigate }: { navigate: (page: Page) => void }) 
         <span className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-pine-500/10 blur-2xl" />
         <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-mut">{greeting()} — seu panorama de {monthShortLabel(month)}</p>
+            <p className="text-sm font-medium text-mut">
+              {greeting()}
+              {settings.userName ? `, ${settings.userName.trim().split(/\s+/)[0]}` : ""} — seu panorama de{" "}
+              {monthShortLabel(month)}
+            </p>
             {show("networth") ? (
               <>
                 <p className="mt-2 text-[13px] font-semibold text-mut">Patrimônio líquido</p>

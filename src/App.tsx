@@ -1,8 +1,9 @@
 import { ToastProvider } from "./contexts/ToastContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { FinanceProvider } from "./contexts/FinanceContext";
+import { FinanceProvider, useFinance } from "./contexts/FinanceContext";
 import { useHashRoute } from "./hooks/useHashRoute";
 import { AppShell } from "./components/layout/AppShell";
+import { OnboardingScreen } from "./components/layout/OnboardingScreen";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TransactionsPage } from "./pages/TransactionsPage";
 import { AccountsPage } from "./pages/AccountsPage";
@@ -22,6 +23,12 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 function Router() {
   const [route, navigate] = useHashRoute();
+  const { status, settings } = useFinance();
+
+  // Primeiro acesso neste navegador: sem nome salvo → pergunta uma única vez.
+  if (status === "ready" && !settings.userName?.trim()) {
+    return <OnboardingScreen />;
+  }
 
   return (
     <AppShell route={route} onNavigate={navigate}>

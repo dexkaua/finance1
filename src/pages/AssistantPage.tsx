@@ -25,11 +25,12 @@ const SUGGESTIONS = [
 ];
 
 export function AssistantPage() {
-  const { appData, status } = useFinance();
+  const { appData, status, settings } = useFinance();
+  const firstName = settings.userName?.trim().split(/\s+/)[0];
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "system",
-      text: "Olá! Sou a consulta financeira do sistema. Respondo usando exclusivamente os seus dados reais — nunca invento números. Experimente uma das perguntas abaixo ou escreva a sua.",
+      text: `Olá${firstName ? `, ${firstName}` : ""}! Sou a consulta financeira do sistema. Respondo usando exclusivamente os seus dados reais — nunca invento números. Experimente uma das perguntas abaixo ou escreva a sua.`,
     },
   ]);
   const [input, setInput] = useState("");

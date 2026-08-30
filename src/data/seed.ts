@@ -29,6 +29,7 @@ import {
 
 export const DEFAULT_SETTINGS: Settings = {
   currency: "BRL",
+  userName: null,
   benchmarks: { cdi: 13.15, selic: 13.25, ipca: 4.8, ibov: 9.5, sp500: 11.2 },
   dashboardWidgets: {
     networth: true,
