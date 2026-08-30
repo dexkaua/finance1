@@ -47,6 +47,7 @@ export function CsvImportModal({
   const [defaultKind, setDefaultKind] = useState<TxKind>("despesa");
   const [isCreditCardImport, setIsCreditCardImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [onlyCurrentInvoice, setOnlyCurrentInvoice] = useState(true); // Apenas fatura atual por padrão
 
   const reset = () => {
     setStep("file");
@@ -58,6 +59,7 @@ export function CsvImportModal({
     setCardId("");
     setDefaultKind("despesa");
     setIsCreditCardImport(false);
+    setOnlyCurrentInvoice(true);
   };
 
   const handleFile = (file: File) => {
@@ -99,56 +101,74 @@ export function CsvImportModal({
     const ki = mapping.kind ? headers.indexOf(mapping.kind) : -1;
     const ii = mapping.installments ? headers.indexOf(mapping.installments) : -1;
 
-    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null; installments?: number }> =
+    // Determinar mês da fatura atual baseado na data mais recente do CSV ou data atual
+    const today = new Date();
+    const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+
+    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null; installments?: number; isPayment?: boolean }> =
       rows.map((row) => {
         const date = parseCsvDate(row[di] ?? "");
-        const description = (row[dsi] ?? "").trim();
+        const description = (row[dsi] ?? "").trim().toLowerCase();
         const rawAmount = parseCsvAmount(row[ai] ?? "");
         const kindCell = ki >= 0 ? normalizeText(row[ki] ?? "") : "";
-        const kind: TxKind =
-          kindCell.includes("receita") || kindCell.includes("credito") || kindCell.includes("deposito")
+        
+        // Detectar se é pagamento de fatura
+        const isPayment = description.includes("pagamento") && description.includes("fatura");
+        
+        const kind: TxKind = isPayment 
+          ? "transferencia" 
+          : kindCell.includes("receita") || kindCell.includes("credito") || kindCell.includes("deposito")
             ? "receita"
             : kindCell.includes("aporte")
               ? "aporte"
               : defaultKind;
 
         let installments: number | undefined;
-        if (isCreditCardImport && ii >= 0) {
+        if (isCreditCardImport && ii >= 0 && !isPayment) {
           const instVal = parseInt(row[ii]?.replace(/[^0-9]/g, "") || "1", 10);
           if (!isNaN(instVal) && instVal > 1) installments = instVal;
         }
 
-        if (!date) return { input: null, duplicate: false, invalid: "Data inválida" };
-        if (description.length < 2) return { input: null, duplicate: false, invalid: "Sem descrição" };
-        if (rawAmount === null) return { input: null, duplicate: false, invalid: "Valor inválido" };
+        if (!date) return { input: null, duplicate: false, invalid: "Data inválida", isPayment };
+        if (description.length < 2) return { input: null, duplicate: false, invalid: "Sem descrição", isPayment };
+        if (rawAmount === null) return { input: null, duplicate: false, invalid: "Valor inválido", isPayment };
 
         const amount = Math.abs(rawAmount);
         const duplicate = transactions.some(
-          (tx) => tx.date === date && Math.abs(tx.amount - amount) < 0.005 && tx.description === description,
+          (tx) => tx.date === date && Math.abs(tx.amount - amount) < 0.005 && tx.description.toLowerCase() === description,
         );
+
+        // Para importação de cartão: usar a conta vinculada ao cartão, não uma conta fixa
+        const selectedCard = cards.find(c => c.id === cardId);
+        const targetAccountId = isCreditCardImport && selectedCard 
+          ? selectedCard.accountId  // Usa a conta vinculada ao cartão
+          : accountId;
 
         return {
           input: {
             kind,
-            description,
+            description: (row[dsi] ?? "").trim(),
             amount,
-            categoryId: kind === "receita" ? "outras-receitas" : "outras-despesas",
+            categoryId: kind === "receita" ? "outras-receitas" : kind === "transferencia" ? "outras-despesas" : "outras-despesas",
             date,
-            accountId: isCreditCardImport && cardId ? cardId : accountId,
-            paymentMethod: isCreditCardImport ? "credito" : "transferencia",
-            cardId: isCreditCardImport && cardId ? cardId : undefined,
-            note: `Importado de ${fileName}.`,
+            accountId: targetAccountId,
+            paymentMethod: isCreditCardImport && !isPayment ? "credito" : isPayment ? "pix" : "transferencia",
+            cardId: isCreditCardImport && cardId && !isPayment ? cardId : undefined,
+            note: isPayment 
+              ? `Pagamento de fatura importado de ${fileName}.`
+              : `Importado de ${fileName}.`,
           },
           duplicate,
           invalid: null,
           installments,
+          isPayment,
         };
       });
     const valid = items.filter((i) => i.input && !i.duplicate);
     const duplicates = items.filter((i) => i.duplicate);
     const invalid = items.filter((i) => i.invalid);
     return { items, valid, duplicates, invalid };
-  }, [step, mapping, headers, rows, defaultKind, accountId, isCreditCardImport, cardId, transactions, fileName]);
+  }, [step, mapping, headers, rows, defaultKind, accountId, isCreditCardImport, cardId, transactions, fileName, cards]);
 
   const stepIndex = step === "file" ? 0 : step === "mapping" ? 1 : 2;
 
@@ -192,15 +212,39 @@ export function CsvImportModal({
                 let count = 0;
                 const validItems = preview.valid;
                 
+                // Separar pagamentos de fatura das demais transações
+                const payments = validItems.filter(item => item.isPayment);
+                const purchases = validItems.filter(item => !item.isPayment);
+                
+                // Processar pagamentos de fatura primeiro
+                payments.forEach((item) => {
+                  const input = item.input as TransactionInput;
+                  importTransactions([input]);
+                  count += 1;
+                });
+                
                 if (isCreditCardImport && cardId) {
-                  // Processar como importação de cartão de crédito com parcelas
-                  validItems.forEach((item) => {
+                  // Processar compras do cartão de crédito com parcelas
+                  purchases.forEach((item) => {
                     const input = item.input as TransactionInput;
                     const installments = item.installments;
                     
                     if (installments && installments > 1) {
-                      createInstallmentPurchase(input, installments);
-                      count += installments;
+                      // Apenas a primeira parcela vai para a fatura atual se onlyCurrentInvoice estiver ativado
+                      if (onlyCurrentInvoice) {
+                        // Criar apenas uma transação para a fatura atual
+                        importTransactions([{
+                          ...input,
+                          description: `${input.description} (1/${installments}) - Fatura atual`,
+                          installmentNumber: 1,
+                          installmentTotal: installments,
+                        }]);
+                        count += 1;
+                      } else {
+                        // Criar todas as parcelas
+                        createInstallmentPurchase(input, installments);
+                        count += installments;
+                      }
                     } else {
                       importTransactions([input]);
                       count += 1;
@@ -208,12 +252,13 @@ export function CsvImportModal({
                   });
                 } else {
                   // Importação normal
-                  count = importTransactions(validItems.map((v) => v.input as TransactionInput));
+                  count = importTransactions(purchases.map((v) => v.input as TransactionInput));
                 }
                 
                 window.setTimeout(() => {
                   setImporting(false);
-                  push("success", "Importação concluída", `${count} lançamentos importados; ${preview.duplicates.length} duplicadas ignoradas.`);
+                  const paymentMsg = payments.length > 0 ? `${payments.length} pagamento(s) de fatura e ` : "";
+                  push("success", "Importação concluída", `${paymentMsg}${count} lançamentos importados; ${preview.duplicates.length} duplicadas ignoradas.`);
                   reset();
                   onClose();
                 }, 350);
@@ -294,10 +339,25 @@ export function CsvImportModal({
               <SelectInput id="map-card" value={cardId} onChange={(e) => setCardId(e.target.value)}>
                 <option value="">Selecione o cartão…</option>
                 {cards.map((card) => (
-                  <option key={card.id} value={card.id}>{card.name} ({card.bank})</option>
+                  <option key={card.id} value={card.id}>{card.name} ({card.bank}) - Conta: {accounts.find(a => a.id === card.accountId)?.institution || 'N/A'}</option>
                 ))}
               </SelectInput>
+              <p className="mt-1 text-[11px] text-mut">
+                A conta vinculada a este cartão será usada como destino das transações.
+              </p>
             </Field>
+          )}
+          
+          {isCreditCardImport && cardId && (
+            <div className="rounded-lg border border-teal-500/30 bg-teal-500/5 p-3">
+              <Checkbox
+                id="only-current-invoice"
+                checked={onlyCurrentInvoice}
+                onChange={(e) => setOnlyCurrentInvoice(e.target.checked)}
+                label="Apenas fatura atual"
+                description="Marque para importar apenas a primeira parcela das compras parceladas. Desmarque para criar todas as parcelas futuras automaticamente."
+              />
+            </div>
           )}
           
           <div className={`grid ${isCreditCardImport ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
@@ -344,6 +404,11 @@ export function CsvImportModal({
                   <option key={account.id} value={account.id}>{account.institution}</option>
                 ))}
               </SelectInput>
+              {isCreditCardImport && cardId ? (
+                <p className="mt-1 text-[11px] text-mut">
+                  Desabilitado: a conta vinculada ao cartão será usada automaticamente.
+                </p>
+              ) : null}
             </Field>
             {!isCreditCardImport && (
               <Field id="map-default-kind" label="Tipo padrão">
@@ -423,6 +488,7 @@ export function CsvImportModal({
                   <th className="px-3 py-2 font-bold text-mut">Data</th>
                   <th className="px-3 py-2 font-bold text-mut">Descrição</th>
                   <th className="px-3 py-2 text-right font-bold text-mut">Valor</th>
+                  <th className="px-3 py-2 font-bold text-mut">Tipo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -433,6 +499,10 @@ export function CsvImportModal({
                         <Badge tone="down">{item.invalid}</Badge>
                       ) : item.duplicate ? (
                         <Badge tone="gold">Duplicada</Badge>
+                      ) : item.isPayment ? (
+                        <Badge tone="inv">Pagamento Fatura</Badge>
+                      ) : item.installments && item.installments > 1 ? (
+                        <Badge tone="teal">{item.installments}x Parcelado</Badge>
                       ) : (
                         <Badge tone="up">Nova</Badge>
                       )}
@@ -441,6 +511,11 @@ export function CsvImportModal({
                     <td className="px-3 py-1.5 font-medium text-ink">{item.input?.description ?? "—"}</td>
                     <td className="tnum px-3 py-1.5 text-right font-semibold text-ink">
                       {item.input ? item.input.amount.toFixed(2).replace(".", ",") : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-mut">
+                      {item.input?.paymentMethod === "credito" ? "Cartão Crédito" : 
+                       item.input?.paymentMethod === "pix" ? "PIX" : 
+                       item.input?.kind === "transferencia" ? "Transferência" : "Outro"}
                     </td>
                   </tr>
                 ))}
