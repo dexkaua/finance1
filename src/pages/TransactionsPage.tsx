@@ -389,6 +389,7 @@ export function TransactionsPage() {
       <CsvImportModal
         open={importOpen}
         accounts={accounts}
+        cards={cards}
         defaultAccountId={accounts[0]?.id ?? ""}
         onClose={() => setImportOpen(false)}
       />
