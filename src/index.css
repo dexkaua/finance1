@@ -1,1 +1,161 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #edf1ee;
+  --card: #fbfcfb;
+  --card-2: #f3f6f3;
+  --line: #dfe6e0;
+  --line-strong: #c8d4ca;
+  --ink: #182420;
+  --mut: #5d6f66;
+  --paper: #f4f8f5;
+  --up: #147a50;
+  --down: #bf4b4b;
+  --inv: #2d69a8;
+  --gold: #9d7114;
+  --side: #0c231b;
+  --side-2: #123126;
+  --side-ink: #d7e7dc;
+  --side-mut: #7f9b8c;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0a0f0d;
+  --card: #111915;
+  --card-2: #17221c;
+  --line: #223028;
+  --line-strong: #31463a;
+  --ink: #e6efe8;
+  --mut: #8aa093;
+  --paper: #f4f8f5;
+  --up: #3bc98b;
+  --down: #ef7d76;
+  --inv: #6fa9e6;
+  --gold: #dcae55;
+  --side: #0a1d15;
+  --side-2: #123024;
+  --side-ink: #d7e7dc;
+  --side-mut: #7f9b8c;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Instrument Sans", system-ui, sans-serif;
+
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-card2: var(--card-2);
+  --color-line: var(--line);
+  --color-linestrong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-mut: var(--mut);
+  --color-paper: var(--paper);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-inv: var(--inv);
+  --color-gold: var(--gold);
+  --color-side: var(--side);
+  --color-side2: var(--side-2);
+  --color-sideink: var(--side-ink);
+  --color-sidemut: var(--side-mut);
+
+  --color-pine-50: #edf6f1;
+  --color-pine-100: #d5eadd;
+  --color-pine-200: #aed7c1;
+  --color-pine-300: #7fbda0;
+  --color-pine-400: #4d9e7c;
+  --color-pine-500: #2b8560;
+  --color-pine-600: #1d6e4e;
+  --color-pine-700: #185940;
+  --color-pine-800: #154835;
+  --color-pine-900: #113a2b;
+  --color-pine-950: #092018;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(1100px 480px at 88% -12%, color-mix(in oklab, var(--up) 8%, transparent), transparent 62%),
+      radial-gradient(850px 420px at -12% 22%, color-mix(in oklab, var(--inv) 7%, transparent), transparent 58%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--up) 28%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--up) 70%, transparent);
+    outline-offset: 2px;
+  }
+  input[type="date"],
+  input[type="month"] {
+    color-scheme: inherit;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--ink) 14%, transparent);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slidein {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@layer utilities {
+  .anim-rise { animation: rise 0.5s cubic-bezier(0.22, 0.8, 0.36, 1) both; }
+  .anim-fadein { animation: fadein 0.28s ease both; }
+  .anim-pop { animation: pop 0.32s cubic-bezier(0.22, 0.8, 0.36, 1) both; }
+  .anim-slidein { animation: slidein 0.35s cubic-bezier(0.22, 0.8, 0.36, 1) both; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .skeleton {
+    background: linear-gradient(
+      100deg,
+      color-mix(in oklab, var(--ink) 6%, transparent) 40%,
+      color-mix(in oklab, var(--ink) 12%, transparent) 50%,
+      color-mix(in oklab, var(--ink) 6%, transparent) 60%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+    border-radius: 8px;
+  }
+  .dotgrid {
+    background-image: radial-gradient(color-mix(in oklab, var(--ink) 10%, transparent) 1px, transparent 1.4px);
+    background-size: 22px 22px;
+  }
+}
