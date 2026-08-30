@@ -112,8 +112,12 @@ export function CsvImportModal({
         const rawAmount = parseCsvAmount(row[ai] ?? "");
         const kindCell = ki >= 0 ? normalizeText(row[ki] ?? "") : "";
         
-        // Detectar se é pagamento de fatura
-        const isPayment = description.includes("pagamento") && description.includes("fatura");
+        // Detectar se é pagamento de fatura (mais específico)
+        const isPayment = (description.includes("pagto") || description.includes("pagamento")) 
+          && (description.includes("fat") || description.includes("cartão") || description.includes("cartao"));
+        
+        // Detectar se é uma compra no cartão de crédito (não é pagamento)
+        const isCreditCardPurchase = isCreditCardImport && !isPayment;
         
         const kind: TxKind = isPayment 
           ? "transferencia" 
@@ -124,7 +128,7 @@ export function CsvImportModal({
               : defaultKind;
 
         let installments: number | undefined;
-        if (isCreditCardImport && ii >= 0 && !isPayment) {
+        if (isCreditCardPurchase && ii >= 0) {
           const instVal = parseInt(row[ii]?.replace(/[^0-9]/g, "") || "1", 10);
           if (!isNaN(instVal) && instVal > 1) installments = instVal;
         }
@@ -152,8 +156,8 @@ export function CsvImportModal({
             categoryId: kind === "receita" ? "outras-receitas" : kind === "transferencia" ? "outras-despesas" : "outras-despesas",
             date,
             accountId: targetAccountId,
-            paymentMethod: isCreditCardImport && !isPayment ? "credito" : isPayment ? "pix" : "transferencia",
-            cardId: isCreditCardImport && cardId && !isPayment ? cardId : undefined,
+            paymentMethod: isCreditCardPurchase ? "credito" : isPayment ? "pix" : "transferencia",
+            cardId: isCreditCardPurchase && cardId ? cardId : undefined,
             note: isPayment 
               ? `Pagamento de fatura importado de ${fileName}.`
               : `Importado de ${fileName}.`,
@@ -162,6 +166,7 @@ export function CsvImportModal({
           invalid: null,
           installments,
           isPayment,
+          isCreditCardPurchase,
         };
       });
     const valid = items.filter((i) => i.input && !i.duplicate);
@@ -214,45 +219,46 @@ export function CsvImportModal({
                 
                 // Separar pagamentos de fatura das demais transações
                 const payments = validItems.filter(item => item.isPayment);
-                const purchases = validItems.filter(item => !item.isPayment);
+                const creditCardPurchases = validItems.filter(item => item.isCreditCardPurchase);
+                const others = validItems.filter(item => !item.isPayment && !item.isCreditCardPurchase);
                 
-                // Processar pagamentos de fatura primeiro
+                // Processar pagamentos de fatura primeiro (como transferências/PIX)
                 payments.forEach((item) => {
                   const input = item.input as TransactionInput;
                   importTransactions([input]);
                   count += 1;
                 });
                 
-                if (isCreditCardImport && cardId) {
-                  // Processar compras do cartão de crédito com parcelas
-                  purchases.forEach((item) => {
-                    const input = item.input as TransactionInput;
-                    const installments = item.installments;
-                    
-                    if (installments && installments > 1) {
-                      // Apenas a primeira parcela vai para a fatura atual se onlyCurrentInvoice estiver ativado
-                      if (onlyCurrentInvoice) {
-                        // Criar apenas uma transação para a fatura atual
-                        importTransactions([{
-                          ...input,
-                          description: `${input.description} (1/${installments}) - Fatura atual`,
-                          installmentNumber: 1,
-                          installmentTotal: installments,
-                        }]);
-                        count += 1;
-                      } else {
-                        // Criar todas as parcelas
-                        createInstallmentPurchase(input, installments);
-                        count += installments;
-                      }
-                    } else {
-                      importTransactions([input]);
+                // Processar compras do cartão de crédito com parcelas
+                creditCardPurchases.forEach((item) => {
+                  const input = item.input as TransactionInput;
+                  const installments = item.installments;
+                  
+                  if (installments && installments > 1) {
+                    // Apenas a primeira parcela vai para a fatura atual se onlyCurrentInvoice estiver ativado
+                    if (onlyCurrentInvoice) {
+                      // Criar apenas uma transação para a fatura atual
+                      importTransactions([{
+                        ...input,
+                        description: `${input.description} (1/${installments}) - Fatura atual`,
+                        installmentNumber: 1,
+                        installmentTotal: installments,
+                      }]);
                       count += 1;
+                    } else {
+                      // Criar todas as parcelas
+                      createInstallmentPurchase(input, installments);
+                      count += installments;
                     }
-                  });
-                } else {
-                  // Importação normal
-                  count = importTransactions(purchases.map((v) => v.input as TransactionInput));
+                  } else {
+                    importTransactions([input]);
+                    count += 1;
+                  }
+                });
+                
+                // Processar outras transações (importação normal)
+                if (others.length > 0) {
+                  count += importTransactions(others.map((v) => v.input as TransactionInput));
                 }
                 
                 window.setTimeout(() => {
