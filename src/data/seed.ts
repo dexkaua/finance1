@@ -45,8 +45,34 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /**
- * Dados fictícios cobrindo os últimos 6 meses no modelo v2, garantindo
- * dashboard, cartões, faturas, parcelas e relatórios preenchidos no 1º acesso.
+ * Estado inicial de uma instalação nova: SOMENTE estrutura, categorias padrão
+ * e configurações. Nenhuma conta, transação, investimento ou qualquer registro
+ * financeiro — todos os valores começam zerados/inexistentes.
+ */
+export function emptyAppData(settings: Settings = DEFAULT_SETTINGS): AppData {
+  return {
+    schemaVersion: 2,
+    transactions: [],
+    accounts: [],
+    cards: [],
+    investments: [],
+    debts: [],
+    goals: [],
+    budgets: [],
+    assets: [],
+    recurrences: [],
+    rules: [],
+    automations: [],
+    invoiceExtras: [],
+    invoicePayments: [],
+    settings: { ...settings },
+  };
+}
+
+/**
+ * Dados de exemplo — NUNCA carregados automaticamente.
+ * Usados apenas quando o usuário solicita explicitamente em
+ * Configurações → "Carregar dados de exemplo", para explorar o sistema.
  */
 export function buildSeedData(): AppData {
   const months: string[] = [];

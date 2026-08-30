@@ -221,19 +221,30 @@ export function ReportsPage() {
             ))}
           </div>
 
-          {!model.hasMovements ? (
+          {transactions.length === 0 ? (
+            <Card className="anim-rise">
+              <EmptyState
+                title="Sem dados suficientes para gerar relatórios"
+                description="Assim que você registrar movimentações, as receitas, despesas, categorias e a evolução patrimonial aparecem aqui — com todo o histórico preservado."
+              />
+            </Card>
+          ) : !model.hasMovements ? (
             <Card className="anim-rise">
               <EmptyState compact title="Sem movimentações neste mês" description="Navegue para outro mês para ver o relatório." />
             </Card>
           ) : null}
 
+          {transactions.length > 0 ? (
           <Card className="anim-rise p-5">
             <div style={{ animationDelay: "120ms" }}>
               <SectionHeader title="Resultado mensal" subtitle="Últimos 12 meses" aside={<CashflowLegend variant="result" />} />
               <CashflowChart data={model.resultSeries} variant="result" height={280} />
             </div>
           </Card>
+          ) : null}
 
+          {transactions.length > 0 ? (
+          <>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card className="anim-rise p-5" hover>
               <div style={{ animationDelay: "160ms" }}>
@@ -255,6 +266,8 @@ export function ReportsPage() {
               <WealthChart data={model.wealth.map((point) => ({ label: point.label, patrimonio: point.patrimonio }))} height={280} />
             </div>
           </Card>
+          </>
+          ) : null}
         </div>
       ) : view === "trimestral" ? (
         <Card className="anim-rise p-5">

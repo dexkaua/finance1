@@ -5,9 +5,9 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
 import { persistAll } from "../services/api";
 import { LEGACY_KEYS, STORAGE_KEYS, storage } from "../services/storage";
+import { buildSeedData, emptyAppData } from "../data/seed";
 import { downloadCsv, downloadJson } from "../utils/csv";
 import { categoryPath } from "../data/categories";
-import { formatBRL } from "../utils/format";
 import { Badge, Card, PageHeader, SectionHeader } from "../components/ui/Display";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Modal";
@@ -30,6 +30,7 @@ export function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
   const { push } = useToast();
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDemo, setConfirmDemo] = useState(false);
   const [resetting, setResetting] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -319,7 +320,10 @@ export function SettingsPage() {
             </ul>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="danger" size="sm" icon={<IconAlert size={14} />} onClick={() => setConfirmReset(true)}>
-                Apagar dados v2 e recarregar seed
+                Apagar tudo e recomeçar do zero
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDemo(true)}>
+                Carregar dados de exemplo (opcional)
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-mut">
@@ -333,14 +337,14 @@ export function SettingsPage() {
 
       <ConfirmDialog
         open={confirmReset}
-        title="Apagar dados da versão 2"
-        confirmLabel="Apagar e semear novamente"
+        title="Apagar tudo e recomeçar do zero"
+        confirmLabel="Apagar e reiniciar vazio"
         loading={resetting}
         message={
           <p>
-            Isso remove as coleções <strong className="text-ink">cf2:*</strong> (dados atuais) e recarrega
-            os dados de exemplo na próxima abertura. As chaves legadas <strong className="text-ink">cf1:*</strong>{" "}
-            não são tocadas. Faça um backup JSON antes, se precisar.
+            Isso remove <strong className="text-ink">todas</strong> as suas informações financeiras deste
+            navegador (transações, contas, cartões, investimentos, dívidas, metas…) e devolve o sistema ao
+            estado de instalação nova — todos os valores zerados. Faça um backup JSON antes, se precisar.
           </p>
         }
         onCancel={() => setConfirmReset(false)}
@@ -350,13 +354,42 @@ export function SettingsPage() {
             Object.values(STORAGE_KEYS).forEach((key) => {
               if (key !== STORAGE_KEYS.theme) storage.remove(key);
             });
+            // Grava um estado explicitamente VAZIO para que nenhuma migração
+            // de dados antigos recrie registros após o reinício.
+            persistAll(emptyAppData(appData.settings));
+            storage.write(STORAGE_KEYS.seeded, true);
+            storage.write(STORAGE_KEYS.schemaVersion, 2);
             window.location.reload();
           }, 400);
         }}
       />
 
+      <ConfirmDialog
+        open={confirmDemo}
+        title="Carregar dados de exemplo"
+        confirmLabel="Carregar exemplo"
+        message={
+          <p>
+            Isso preenche o sistema com um cenário fictício (contas, cartões, investimentos, dívidas e
+            metas de demonstração) apenas para você explorar as telas.{" "}
+            <strong className="text-ink">Substitui os dados atuais.</strong> Depois você pode apagar tudo
+            em “Apagar tudo e recomeçar do zero”.
+          </p>
+        }
+        onCancel={() => setConfirmDemo(false)}
+        onConfirm={() => {
+          persistAll(buildSeedData());
+          storage.write(STORAGE_KEYS.seeded, true);
+          storage.write(STORAGE_KEYS.schemaVersion, 2);
+          push("success", "Dados de exemplo carregados", "Recarregando o sistema…");
+          window.setTimeout(() => window.location.reload(), 600);
+        }}
+      />
+
       <p className="mt-4 text-[11px] text-mut">
-        Exemplo de valor formatado com a moeda atual: {formatBRL(1234.5)}.
+        A instalação é entregue vazia: apenas estrutura, categorias padrão e configurações. Todos os
+        valores financeiros começam zerados até você cadastrar sua própria vida financeira. Moeda
+        ativa: {settings.currency}.
       </p>
     </div>
   );

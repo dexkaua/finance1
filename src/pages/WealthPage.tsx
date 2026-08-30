@@ -349,6 +349,12 @@ export function WealthPage() {
           <Card className="anim-rise p-5">
             <div style={{ animationDelay: "260ms" }}>
               <SectionHeader title="Linha do tempo" subtitle="Patrimônio ao longo dos anos" />
+              {transactions.length === 0 && investments.length === 0 && accounts.length === 0 ? (
+                <p className="py-4 text-sm text-mut">
+                  Sem dados suficientes — cadastre contas, movimentações ou investimentos para
+                  construir sua linha do tempo.
+                </p>
+              ) : (
               <ol className="relative ml-2 space-y-4 border-l-2 border-pine-500/30 pl-5">
                 {yearly.map((point, index) => (
                   <li key={point.year} className="relative">
@@ -368,6 +374,7 @@ export function WealthPage() {
                   </li>
                 ))}
               </ol>
+              )}
             </div>
           </Card>
         </div>

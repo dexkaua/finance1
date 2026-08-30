@@ -23,7 +23,7 @@ import type {
   Settings,
   Transaction,
 } from "../types";
-import { buildSeedData, DEFAULT_SETTINGS } from "../data/seed";
+import { DEFAULT_SETTINGS, emptyAppData } from "../data/seed";
 import { hasLegacyData, hasV2Data, migrateV1ToV2 } from "./migration";
 import { storage, STORAGE_KEYS } from "./storage";
 
@@ -59,11 +59,13 @@ export async function fetchAppData(): Promise<AppData> {
   }
 
   if (!hasV2Data()) {
-    const seed = buildSeedData();
-    persistAll(seed);
+    // Instalação nova: o sistema inicia COMPLETAMENTE VAZIO.
+    // Nenhum dado fictício é criado — o usuário começa do zero.
+    const empty = emptyAppData(DEFAULT_SETTINGS);
+    persistAll(empty);
     storage.write(STORAGE_KEYS.seeded, true);
     storage.write(STORAGE_KEYS.schemaVersion, 2);
-    return seed;
+    return empty;
   }
 
   return {

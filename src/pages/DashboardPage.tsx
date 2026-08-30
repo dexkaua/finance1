@@ -317,6 +317,66 @@ export function DashboardPage({ navigate }: { navigate: (page: Page) => void }) 
         </div>
       </div>
 
+      {/* Primeiro uso: guia de início (somente com o sistema zerado) */}
+      {status === "ready" && transactions.length === 0 && accounts.length === 0 ? (
+        <Card className="anim-rise relative overflow-hidden">
+          <div className="dotgrid pointer-events-none absolute inset-0 opacity-40" />
+          <div className="relative p-5 sm:p-6">
+            <p className="font-display text-lg font-bold text-ink">Bem-vindo! Comece sua vida financeira do zero</p>
+            <p className="mt-1 max-w-xl text-sm text-mut">
+              O sistema está limpo, sem nenhum dado de exemplo. Siga os três passos abaixo — os
+              gráficos, relatórios e indicadores se constroem a partir do que você cadastrar.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {[
+                {
+                  step: "1",
+                  title: "Crie sua primeira conta",
+                  desc: "Corrente, poupança, carteira… o saldo nasce das movimentações.",
+                  icon: <IconWallet size={18} />,
+                  action: () => navigate("contas"),
+                  cta: "Adicionar conta",
+                },
+                {
+                  step: "2",
+                  title: "Lance receitas e despesas",
+                  desc: "Salário, mercado, aluguel — com categoria e data.",
+                  icon: <IconSwap size={18} />,
+                  action: () => openTransactionModal(),
+                  cta: "Nova movimentação",
+                },
+                {
+                  step: "3",
+                  title: "Cadastre investimentos",
+                  desc: "Tesouro, CDB, ações… com rentabilidade configurável.",
+                  icon: <IconChart size={18} />,
+                  action: () => navigate("investimentos"),
+                  cta: "Novo investimento",
+                },
+              ].map((item, index) => (
+                <button
+                  key={item.step}
+                  type="button"
+                  onClick={item.action}
+                  className="group anim-rise flex flex-col items-start gap-2 rounded-xl border border-line bg-card p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-pine-500/50 hover:shadow-md"
+                  style={{ animationDelay: `${120 + index * 80}ms` }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-pine-600 font-display text-[13px] font-bold text-paper">
+                      {item.step}
+                    </span>
+                    <span className="text-up">{item.icon}</span>
+                  </span>
+                  <span className="font-display text-sm font-bold text-ink">{item.title}</span>
+                  <span className="text-xs leading-relaxed text-mut">{item.desc}</span>
+                  <span className="mt-1 text-xs font-bold text-up group-hover:underline">{item.cta} →</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
       {/* Gráficos */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card className="anim-rise p-5" hover>
@@ -324,9 +384,18 @@ export function DashboardPage({ navigate }: { navigate: (page: Page) => void }) 
             <SectionHeader
               title="Receitas × despesas"
               subtitle="Últimos 6 meses"
-              aside={<CashflowLegend />}
+              aside={transactions.length > 0 ? <CashflowLegend /> : undefined}
             />
-            <CashflowChart data={model.resultSeries} height={240} />
+            {transactions.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<IconChart size={20} />}
+                title="Sem dados suficientes para exibir este gráfico"
+                description="Registre receitas e despesas e o comparativo aparece automaticamente."
+              />
+            ) : (
+              <CashflowChart data={model.resultSeries} height={240} />
+            )}
           </div>
         </Card>
         <Card className="anim-rise p-5" hover>
@@ -335,12 +404,23 @@ export function DashboardPage({ navigate }: { navigate: (page: Page) => void }) 
               title="Evolução do patrimônio"
               subtitle="Caixa + investimentos + bens (12 meses)"
               aside={
-                <button type="button" onClick={() => navigate("patrimonio")} className="text-xs font-semibold text-inv hover:underline">
-                  detalhes
-                </button>
+                transactions.length > 0 ? (
+                  <button type="button" onClick={() => navigate("patrimonio")} className="text-xs font-semibold text-inv hover:underline">
+                    detalhes
+                  </button>
+                ) : undefined
               }
             />
-            <WealthChart data={model.series.map((p) => ({ label: p.label, patrimonio: p.patrimonio }))} height={240} />
+            {transactions.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<IconChart size={20} />}
+                title="Sem dados suficientes para exibir este gráfico"
+                description="Com contas e movimentações, a curva do patrimônio é desenhada aqui."
+              />
+            ) : (
+              <WealthChart data={model.series.map((p) => ({ label: p.label, patrimonio: p.patrimonio }))} height={240} />
+            )}
           </div>
         </Card>
       </div>

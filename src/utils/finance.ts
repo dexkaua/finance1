@@ -630,7 +630,10 @@ export function computeScore(data: AppData): FinancialScore {
   const savings = ((avgMonthlyIncome - avgMonthlyExpense) / avgMonthlyIncome) * 100;
   const savingsScore = Math.min(100, Math.max(0, (savings / 30) * 100));
 
-  const investRatio = snapshot.financialAssets > 0 ? snapshot.investments / snapshot.netWorth : 0;
+  const investRatio =
+    snapshot.financialAssets > 0 && snapshot.netWorth > 0
+      ? snapshot.investments / snapshot.netWorth
+      : 0;
   const investScore = Math.min(100, Math.max(0, investRatio * 130));
 
   const statuses = budgetStatuses(budgets, transactions);
