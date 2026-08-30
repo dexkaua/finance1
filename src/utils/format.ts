@@ -1,36 +1,48 @@
-/** Formatação de moeda, números e entradas monetárias (pt-BR). */
+/** Formatação de moeda (multi-moeda), números e parsing de entradas monetárias. */
 
-const brlFormatter = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-});
+import type { Currency } from "../types";
 
-const brlCompactFormatter = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+let activeCurrency: Currency = "BRL";
 
-const numberFormatter = new Intl.NumberFormat("pt-BR", {
-  maximumFractionDigits: 2,
-});
+/** Define a moeda exibida em toda a aplicação (persistida em settings). */
+export function setActiveCurrency(currency: Currency): void {
+  activeCurrency = currency;
+}
+
+export function getActiveCurrency(): Currency {
+  return activeCurrency;
+}
+
+const formatters = new Map<Currency, Intl.NumberFormat>();
+
+function formatterFor(currency: Currency): Intl.NumberFormat {
+  let fmt = formatters.get(currency);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat("pt-BR", { style: "currency", currency });
+    formatters.set(currency, fmt);
+  }
+  return fmt;
+}
 
 export function formatBRL(value: number): string {
-  return brlFormatter.format(value);
+  return formatterFor(activeCurrency).format(value);
 }
 
 export function formatBRLCompact(value: number): string {
-  return brlCompactFormatter.format(value);
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: activeCurrency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 export function formatNumber(value: number): string {
-  return numberFormatter.format(value);
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
 }
 
-/** Sinal explícito: "+ R$ 120,00" ou "− R$ 80,00". */
 export function formatSignedBRL(value: number): string {
-  const abs = brlFormatter.format(Math.abs(value));
+  const abs = formatBRL(Math.abs(value));
   if (value > 0) return `+ ${abs}`;
   if (value < 0) return `− ${abs}`;
   return abs;
@@ -43,12 +55,9 @@ export function formatPercent(value: number, digits = 1): string {
   })}%`;
 }
 
-/**
- * Converte texto digitado ("1.234,56", "1234.56", "R$ 90") em número.
- * Retorna null quando não é um valor numérico válido.
- */
+/** Converte texto digitado ("1.234,56", "1234.56", "R$ 90") em número. */
 export function parseCurrencyInput(raw: string): number | null {
-  const cleaned = raw.replace(/[R$\s]/g, "");
+  const cleaned = raw.replace(/[R$US$\s€]/g, "");
   if (cleaned === "") return null;
   let normalized = cleaned;
   if (cleaned.includes(",")) {
@@ -61,4 +70,8 @@ export function parseCurrencyInput(raw: string): number | null {
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }

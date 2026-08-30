@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import type { Goal, GoalColor } from "../../types";
+import type { Goal, GoalColor, GoalMode, GoalPriority } from "../../types";
 import { useFinance } from "../../contexts/FinanceContext";
 import { useToast } from "../../contexts/ToastContext";
 import { GOAL_COLORS } from "../../data/categories";
-import { parseCurrencyInput } from "../../utils/format";
+import { monthsUntil } from "../../utils/date";
+import { formatBRL, parseCurrencyInput } from "../../utils/format";
 import { validateGoal, type FieldErrors } from "../../utils/validation";
 import { Button } from "../ui/Button";
-import { CurrencyInput, Field, TextInput } from "../ui/FormControls";
+import { CurrencyInput, Field, Segmented, SelectInput, TextInput } from "../ui/FormControls";
 import { Modal } from "../ui/Modal";
 import { IconCheck } from "../ui/icons";
 
@@ -17,6 +18,11 @@ interface FormState {
   currentAmount: string;
   deadline: string;
   color: GoalColor;
+  priority: GoalPriority;
+  mode: GoalMode;
+  monthlyContribution: string;
+  accountId: string;
+  investmentId: string;
 }
 
 function initialState(editing: Goal | null): FormState {
@@ -28,6 +34,14 @@ function initialState(editing: Goal | null): FormState {
       currentAmount: editing.currentAmount.toFixed(2).replace(".", ","),
       deadline: editing.deadline,
       color: editing.color,
+      priority: editing.priority,
+      mode: editing.mode,
+      monthlyContribution:
+        editing.monthlyContribution !== undefined
+          ? editing.monthlyContribution.toFixed(2).replace(".", ",")
+          : "",
+      accountId: editing.accountId ?? "",
+      investmentId: editing.investmentId ?? "",
     };
   }
   return {
@@ -37,6 +51,11 @@ function initialState(editing: Goal | null): FormState {
     currentAmount: "0",
     deadline: "",
     color: "pine",
+    priority: "media",
+    mode: "prazo",
+    monthlyContribution: "",
+    accountId: "",
+    investmentId: "",
   };
 }
 
@@ -49,7 +68,7 @@ export function GoalModal({
   editing: Goal | null;
   onClose: () => void;
 }) {
-  const { addGoal, updateGoal } = useFinance();
+  const { addGoal, updateGoal, accounts, investments } = useFinance();
   const { push } = useToast();
   const [form, setForm] = useState<FormState>(() => initialState(null));
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -77,13 +96,23 @@ export function GoalModal({
       setErrors(validation);
       return;
     }
+    const target = Math.round((parseCurrencyInput(form.targetAmount) ?? 0) * 100) / 100;
+    const current = Math.round((parseCurrencyInput(form.currentAmount) ?? 0) * 100) / 100;
     const input = {
       name: form.name.trim(),
       purpose: form.purpose.trim(),
-      targetAmount: Math.round((parseCurrencyInput(form.targetAmount) ?? 0) * 100) / 100,
-      currentAmount: Math.round((parseCurrencyInput(form.currentAmount) ?? 0) * 100) / 100,
+      targetAmount: target,
+      currentAmount: current,
       deadline: form.deadline,
       color: form.color,
+      priority: form.priority,
+      mode: form.mode,
+      monthlyContribution:
+        form.mode === "aporte"
+          ? Math.round((parseCurrencyInput(form.monthlyContribution) ?? 0) * 100) / 100
+          : undefined,
+      accountId: form.accountId || undefined,
+      investmentId: form.investmentId || undefined,
     };
     if (editing) {
       updateGoal(editing.id, input);
@@ -95,12 +124,30 @@ export function GoalModal({
     onClose();
   };
 
+  // Projeção no modo prazo: quanto aportar por mês para chegar lá
+  const projection = (() => {
+    const target = parseCurrencyInput(form.targetAmount) ?? 0;
+    const current = parseCurrencyInput(form.currentAmount) ?? 0;
+    if (!form.deadline || target <= 0) return null;
+    const months = monthsUntil(form.deadline);
+    if (form.mode === "aporte") {
+      const monthly = parseCurrencyInput(form.monthlyContribution) ?? 0;
+      const projected = current + monthly * months;
+      return projected >= target
+        ? `No ritmo atual você atinge a meta em ~${Math.ceil((target - current) / Math.max(1, monthly))} meses.`
+        : `Projeção em ${months} meses: ${formatBRL(projected)} — faltariam ${formatBRL(target - projected)}.`;
+    }
+    const remaining = Math.max(0, target - current);
+    return `Para atingir em ${months} meses: aportar ${formatBRL(remaining / months)}/mês.`;
+  })();
+
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={editing ? "Editar meta" : "Nova meta"}
-      subtitle="Defina objetivo, valor e prazo."
+      subtitle="Objetivo, valor, prazo e projeção."
+      size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -120,16 +167,29 @@ export function GoalModal({
           handleSubmit();
         }}
       >
-        <Field id="goal-name" label="Nome da meta" error={errors.name}>
-          <TextInput
-            id="goal-name"
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder="Ex.: Reserva de emergência"
-            invalid={Boolean(errors.name)}
-            maxLength={60}
-          />
-        </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr]">
+          <Field id="goal-name" label="Nome da meta" error={errors.name}>
+            <TextInput
+              id="goal-name"
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Ex.: Reserva de emergência"
+              invalid={Boolean(errors.name)}
+              maxLength={60}
+            />
+          </Field>
+          <Field id="goal-priority" label="Prioridade">
+            <SelectInput
+              id="goal-priority"
+              value={form.priority}
+              onChange={(e) => set("priority", e.target.value as GoalPriority)}
+            >
+              <option value="alta">Alta</option>
+              <option value="media">Média</option>
+              <option value="baixa">Baixa</option>
+            </SelectInput>
+          </Field>
+        </div>
 
         <Field id="goal-purpose" label="Finalidade (opcional)">
           <TextInput
@@ -160,15 +220,73 @@ export function GoalModal({
           </Field>
         </div>
 
-        <Field id="goal-deadline" label="Prazo" error={errors.deadline}>
-          <TextInput
-            id="goal-deadline"
-            type="date"
-            value={form.deadline}
-            onChange={(e) => set("deadline", e.target.value)}
-            invalid={Boolean(errors.deadline)}
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field id="goal-deadline" label="Prazo" error={errors.deadline}>
+            <TextInput
+              id="goal-deadline"
+              type="date"
+              value={form.deadline}
+              onChange={(e) => set("deadline", e.target.value)}
+              invalid={Boolean(errors.deadline)}
+            />
+          </Field>
+          <Field id="goal-mode" label="Modo de planejamento">
+            <Segmented
+              ariaLabel="Modo da meta"
+              value={form.mode}
+              onChange={(value) => set("mode", value)}
+              options={[
+                { value: "prazo", label: "Por prazo" },
+                { value: "aporte", label: "Por aporte" },
+              ]}
+            />
+          </Field>
+        </div>
+
+        {form.mode === "aporte" ? (
+          <Field
+            id="goal-monthly"
+            label="Aporte mensal planejado"
+            error={errors.monthlyContribution}
+            hint={projection ?? undefined}
+          >
+            <CurrencyInput
+              id="goal-monthly"
+              value={form.monthlyContribution}
+              onValueChange={(value) => set("monthlyContribution", value)}
+              invalid={Boolean(errors.monthlyContribution)}
+            />
+          </Field>
+        ) : (
+          projection ? (
+            <p className="anim-fadein rounded-lg border border-inv/25 bg-inv/5 px-3 py-2 text-xs font-medium text-inv">
+              {projection}
+            </p>
+          ) : null
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field id="goal-account" label="Conta vinculada (opcional)">
+            <SelectInput id="goal-account" value={form.accountId} onChange={(e) => set("accountId", e.target.value)}>
+              <option value="">Nenhuma</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.institution}
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field id="goal-investment" label="Investimento vinculado (opcional)">
+            <SelectInput id="goal-investment" value={form.investmentId} onChange={(e) => set("investmentId", e.target.value)}>
+              <option value="">Nenhum</option>
+              {investments.map((inv) => (
+                <option key={inv.id} value={inv.id}>
+                  {inv.name}
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+        </div>
 
         <Field id="goal-color" label="Cor">
           <div className="flex items-center gap-2.5" role="radiogroup" aria-label="Cor da meta">

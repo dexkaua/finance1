@@ -1,4 +1,5 @@
-import type { Category, PeriodPreset, TransactionFilters, TransactionType } from "../../types";
+import type { Category, PeriodPreset, TransactionFilters, TxKind } from "../../types";
+import { KIND_META } from "../../data/categories";
 import { Button } from "../ui/Button";
 import { SelectInput, TextInput } from "../ui/FormControls";
 import { IconSearch, IconX } from "../ui/icons";
@@ -12,9 +13,15 @@ const PERIOD_OPTIONS: Array<{ value: PeriodPreset; label: string }> = [
   { value: "personalizado", label: "Personalizado" },
 ];
 
+const KIND_ORDER: TxKind[] = [
+  "receita", "despesa", "transferencia", "aporte", "resgate",
+  "dividendo", "juros", "taxa", "estorno", "ajuste",
+];
+
 export interface FiltersBarProps {
   filters: TransactionFilters;
   categories: Category[];
+  accountNames: Map<string, string>;
   hasActiveFilters: boolean;
   onChange: (patch: Partial<TransactionFilters>) => void;
   onClear: () => void;
@@ -23,17 +30,16 @@ export interface FiltersBarProps {
 export function FiltersBar({
   filters,
   categories,
+  accountNames,
   hasActiveFilters,
   onChange,
   onClear,
 }: FiltersBarProps) {
   return (
     <div className="rounded-xl border border-line bg-card p-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1.2fr]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1.1fr]">
         <div className="relative">
-          <label htmlFor="filter-search" className="sr-only">
-            Buscar por descrição
-          </label>
+          <label htmlFor="filter-search" className="sr-only">Buscar por descrição</label>
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mut">
             <IconSearch size={16} />
           </span>
@@ -47,25 +53,23 @@ export function FiltersBar({
         </div>
 
         <div>
-          <label htmlFor="filter-type" className="sr-only">
-            Filtrar por tipo
-          </label>
+          <label htmlFor="filter-kind" className="sr-only">Filtrar por tipo</label>
           <SelectInput
-            id="filter-type"
-            value={filters.type}
-            onChange={(e) => onChange({ type: e.target.value as TransactionType | "todas" })}
+            id="filter-kind"
+            value={filters.kind}
+            onChange={(e) => onChange({ kind: e.target.value as TxKind | "todas" })}
           >
             <option value="todas">Todos os tipos</option>
-            <option value="receita">Receitas</option>
-            <option value="despesa">Despesas</option>
-            <option value="investimento">Aportes</option>
+            {KIND_ORDER.map((kind) => (
+              <option key={kind} value={kind}>
+                {KIND_META[kind].plural}
+              </option>
+            ))}
           </SelectInput>
         </div>
 
         <div>
-          <label htmlFor="filter-category" className="sr-only">
-            Filtrar por categoria
-          </label>
+          <label htmlFor="filter-category" className="sr-only">Filtrar por categoria</label>
           <SelectInput
             id="filter-category"
             value={filters.categoryId}
@@ -81,9 +85,23 @@ export function FiltersBar({
         </div>
 
         <div>
-          <label htmlFor="filter-period" className="sr-only">
-            Filtrar por período
-          </label>
+          <label htmlFor="filter-account" className="sr-only">Filtrar por conta</label>
+          <SelectInput
+            id="filter-account"
+            value={filters.accountId}
+            onChange={(e) => onChange({ accountId: e.target.value })}
+          >
+            <option value="todas">Todas as contas</option>
+            {Array.from(accountNames.entries()).map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </SelectInput>
+        </div>
+
+        <div>
+          <label htmlFor="filter-period" className="sr-only">Filtrar por período</label>
           <SelectInput
             id="filter-period"
             value={filters.period}
@@ -123,13 +141,22 @@ export function FiltersBar({
         </div>
       ) : null}
 
-      {hasActiveFilters ? (
-        <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-mut">
+          <input
+            type="checkbox"
+            checked={filters.includeInactive}
+            onChange={(e) => onChange({ includeInactive: e.target.checked })}
+            className="h-3.5 w-3.5 accent-[#1d6e4e]"
+          />
+          Mostrar canceladas e estornadas
+        </label>
+        {hasActiveFilters ? (
           <Button variant="ghost" size="sm" icon={<IconX size={14} />} onClick={onClear}>
             Limpar filtros
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

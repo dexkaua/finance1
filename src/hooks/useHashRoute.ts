@@ -1,7 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Page } from "../types";
 
-const ROUTES: Page[] = ["dashboard", "movimentacoes", "investimentos", "metas", "relatorios"];
+const ROUTES: Page[] = [
+  "dashboard",
+  "movimentacoes",
+  "contas",
+  "cartoes",
+  "investimentos",
+  "patrimonio",
+  "dividas",
+  "metas",
+  "orcamentos",
+  "recorrencias",
+  "relatorios",
+  "simulacoes",
+  "assistente",
+  "saude",
+  "automacao",
+  "configuracoes",
+];
 
 function parseHash(): Page {
   const hash = window.location.hash.replace(/^#\/?/, "");

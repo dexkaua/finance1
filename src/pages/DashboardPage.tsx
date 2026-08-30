@@ -1,437 +1,453 @@
-import { useMemo, type ReactNode } from "react";
-import type { Page, Transaction } from "../types";
+import { useMemo, useState } from "react";
+import type { Page } from "../types";
 import { useFinance } from "../contexts/FinanceContext";
 import { useAnimatedNumber } from "../hooks/useAnimatedNumber";
+import { KIND_META, categoryPath } from "../data/categories";
 import {
+  addDaysISO,
   currentMonthKey,
+  dayInMonth,
   formatDayMonth,
-  greeting,
   lastMonthKeys,
-  monthLongLabel,
+  monthShortLabel,
   shiftMonthKey,
+  todayISO,
 } from "../utils/date";
 import {
-  buildMonthPoints,
-  categoryTotals,
-  getCategory,
-  liquidBalance,
+  budgetStatuses,
+  cardLimitUsed,
+  checkDataQuality,
+  computeScore,
+  isActive,
+  monthResult,
   sortTransactionsDesc,
-  sumByType,
+  sumKind,
+  wealthSeries,
+  wealthSnapshot,
+  EXPENSE_KINDS,
+  INCOME_KINDS,
 } from "../utils/finance";
-import { formatBRL, formatSignedBRL } from "../utils/format";
-import { goalColorHex } from "../data/categories";
-import { Badge, Card, DeltaChip, PageHeader, ProgressBar, SectionHeader } from "../components/ui/Display";
+import { clamp, formatBRL, formatBRLCompact, formatPercent, formatSignedBRL } from "../utils/format";
+import { Badge, Card, DeltaChip, ProgressBar, SectionHeader } from "../components/ui/Display";
 import { EmptyState, ErrorState, Skeleton } from "../components/ui/Feedback";
+import { Button } from "../components/ui/Button";
+import { CashflowChart, CashflowLegend } from "../components/charts/CashflowChart";
+import { WealthChart } from "../components/charts/WealthChart";
 import {
-  IconArrowDownRight,
   IconArrowUpRight,
+  IconBank,
+  IconCalendar,
+  IconChart,
   IconCoins,
+  IconSearch,
+  IconSwap,
   IconTarget,
   IconTrendUp,
   IconWallet,
 } from "../components/ui/icons";
-import { CashflowChart, CashflowLegend } from "../components/charts/CashflowChart";
-import { WealthChart } from "../components/charts/WealthChart";
-import { CategoryBars } from "../components/charts/CategoryBars";
 
-function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = values
-    .map(
-      (value, index) =>
-        `${((index / (values.length - 1)) * 100).toFixed(2)},${(33 - ((value - min) / range) * 28).toFixed(2)}`,
-    )
-    .join(" ");
-  return (
-    <svg viewBox="0 0 100 36" className="h-16 w-full" preserveAspectRatio="none" aria-hidden="true">
-      <polygon points={`0,36 ${points} 100,36`} fill="var(--up)" opacity="0.12" />
-      <polyline
-        points={points}
-        fill="none"
-        stroke="var(--up)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
-
-const TILE_TONES = {
-  up: "bg-up/10 text-up",
-  down: "bg-down/10 text-down",
-  inv: "bg-inv/10 text-inv",
-  gold: "bg-gold/10 text-gold",
-} as const;
-
-function Tile({
-  label,
-  value,
-  icon,
-  tone,
-  delay,
-  valueClass = "text-ink",
-  children,
-}: {
-  label: string;
-  value: string;
-  icon: ReactNode;
-  tone: keyof typeof TILE_TONES;
-  delay: number;
-  valueClass?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <Card hover className="anim-rise p-5" >
-      <div style={{ animationDelay: `${delay}ms` }}>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[13px] font-semibold text-mut">{label}</p>
-          <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${TILE_TONES[tone]}`}>
-            {icon}
-          </span>
-        </div>
-        <p className={`tnum mt-2 font-display text-[22px] font-bold leading-none ${valueClass}`}>
-          {value}
-        </p>
-        <div className="mt-2.5">{children}</div>
-      </div>
-    </Card>
-  );
-}
-
-function TransactionRow({ tx, delay }: { tx: Transaction; delay: number }) {
-  const category = getCategory(tx.categoryId);
-  const isReceita = tx.type === "receita";
-  const isAporte = tx.type === "investimento";
-  return (
-    <li
-      className="anim-rise flex items-center gap-3 px-5 py-3 transition-colors hover:bg-card2/60"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <span
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          isReceita ? "bg-up/10 text-up" : isAporte ? "bg-inv/10 text-inv" : "bg-down/10 text-down"
-        }`}
-      >
-        {isReceita ? (
-          <IconArrowUpRight size={17} />
-        ) : isAporte ? (
-          <IconCoins size={17} />
-        ) : (
-          <IconArrowDownRight size={17} />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-ink">{tx.description}</p>
-        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-mut">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: category?.color ?? "#8b949e" }}
-          />
-          {category?.label ?? tx.categoryId} · {formatDayMonth(tx.date)}
-        </p>
-      </div>
-      <span
-        className={`tnum shrink-0 text-sm font-bold ${
-          isReceita ? "text-up" : isAporte ? "text-inv" : "text-down"
-        }`}
-      >
-        {isAporte ? formatBRL(tx.amount) : formatSignedBRL(isReceita ? tx.amount : -tx.amount)}
-      </span>
-    </li>
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-12 gap-4">
-        <Skeleton className="col-span-12 h-64 md:col-span-6 lg:col-span-4 lg:row-span-2" />
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="col-span-12 h-32 sm:col-span-6 md:col-span-3 lg:col-span-4" />
-        ))}
-      </div>
-      <div className="grid grid-cols-12 gap-4">
-        <Skeleton className="col-span-12 h-80 lg:col-span-7" />
-        <Skeleton className="col-span-12 h-80 lg:col-span-5" />
-      </div>
-    </div>
-  );
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 6) return "Boa madrugada";
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
 }
 
 export function DashboardPage({ navigate }: { navigate: (page: Page) => void }) {
-  const { status, transactions, investments, goals, refresh, openTransactionModal } = useFinance();
+  const { status, appData, settings, updateSettings, openTransactionModal, refresh } = useFinance();
+  const [editingWidgets, setEditingWidgets] = useState(false);
+
+  const { transactions, accounts, cards, investments, debts, goals, budgets, assets, invoiceExtras, invoicePayments, recurrences } = appData;
   const month = currentMonthKey();
-  const prevMonth = useMemo(() => shiftMonthKey(month, -1), [month]);
 
   const model = useMemo(() => {
-    const pontos = buildMonthPoints(transactions, investments, lastMonthKeys(6));
-    const receitasMes = sumByType(transactions, "receita", month);
-    const despesasMes = sumByType(transactions, "despesa", month);
-    const receitasPrev = sumByType(transactions, "receita", prevMonth);
-    const despesasPrev = sumByType(transactions, "despesa", prevMonth);
-    const saldo = liquidBalance(transactions);
-    const investedTotal = investments.reduce((acc, inv) => acc + inv.investedAmount, 0);
-    const currentTotal = investments.reduce((acc, inv) => acc + inv.currentValue, 0);
+    const snapshot = wealthSnapshot(accounts, investments, assets, debts, cards, transactions, invoiceExtras, invoicePayments);
+    const receitas = sumKind(transactions, INCOME_KINDS, month);
+    const despesas = sumKind(transactions, EXPENSE_KINDS, month);
+    const aportes = sumKind(transactions, ["aporte"], month);
+    const prevMonth = shiftMonthKey(month, -1);
+    const lastYearMonth = shiftMonthKey(month, -12);
+    const series = wealthSeries(accounts, investments, assets, transactions, lastMonthKeys(12));
+    const currentWealth = series[series.length - 1]?.patrimonio ?? snapshot.netWorth;
+    const prevMonthWealth = series[series.length - 2]?.patrimonio ?? currentWealth;
+    const prevYearWealth = series[0]?.patrimonio ?? currentWealth;
+    const resultSeries = lastMonthKeys(6).map((key) => ({
+      label: monthShortLabel(key),
+      receita: sumKind(transactions, INCOME_KINDS, key),
+      despesa: sumKind(transactions, EXPENSE_KINDS, key),
+      resultado: monthResult(transactions, key),
+    }));
+    const recent = sortTransactionsDesc(transactions.filter(isActive)).slice(0, 6);
+    const upcoming = transactions
+      .filter((tx) => isActive(tx) && tx.date >= todayISO() && tx.date <= addDaysISO(todayISO(), 7))
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .slice(0, 5);
+    const debtsDue = debts
+      .filter((debt) => debt.balance > 0)
+      .map((debt) => ({
+        id: `debt-${debt.id}`,
+        label: `Parcela ${debt.creditor}`,
+        date: dayInMonth(month, debt.dueDay),
+        amount: debt.monthlyPayment,
+      }))
+      .filter((item) => item.date >= todayISO() && item.date <= addDaysISO(todayISO(), 7));
+    const score = computeScore(appData);
+    const issues = checkDataQuality(appData);
+    const budgetsOver = budgetStatuses(budgets, transactions).filter((s) => s.exceeded);
+    const cardUsed = cards.reduce((acc, card) => acc + cardLimitUsed(card, transactions, invoiceExtras, invoicePayments), 0);
+    const savingsRate = receitas > 0 ? ((receitas - despesas) / receitas) * 100 : null;
     return {
-      pontos,
-      receitasMes,
-      despesasMes,
-      resultadoMes: receitasMes - despesasMes,
-      resultadoPrev: receitasPrev - despesasPrev,
-      receitasPrev,
-      despesasPrev,
-      saldo,
-      saldoPrev: saldo - (receitasMes - despesasMes - sumByType(transactions, "investimento", month)),
-      investedTotal,
-      patrimonio: saldo + currentTotal,
-      recent: sortTransactionsDesc(transactions).slice(0, 7),
-      topDespesas: categoryTotals(transactions, "despesa", month).slice(0, 4),
-      goalsPreview: [...goals].sort((a, b) => (a.deadline < b.deadline ? -1 : 1)).slice(0, 3),
+      snapshot,
+      receitas,
+      despesas,
+      aportes,
+      resultadoMes: monthResult(transactions, month),
+      resultadoPrev: monthResult(transactions, prevMonth),
+      resultadoYearAgo: monthResult(transactions, lastYearMonth),
+      currentWealth,
+      prevMonthWealth,
+      prevYearWealth,
+      series,
+      resultSeries,
+      recent,
+      upcoming: [...debtsDue, ...upcoming.map((tx) => ({ id: tx.id, label: tx.description, date: tx.date, amount: tx.amount }))].slice(0, 6),
+      score,
+      issues,
+      budgetsOver,
+      cardUsed,
+      savingsRate,
     };
-  }, [transactions, investments, goals, month, prevMonth]);
+  }, [appData, accounts, investments, assets, debts, cards, transactions, invoiceExtras, invoicePayments, budgets, month]);
 
-  const animatedSaldo = useAnimatedNumber(model.saldo);
+  const animatedWealth = useAnimatedNumber(model.currentWealth);
+
+  if (status === "error") return <ErrorState onRetry={() => void refresh()} />;
 
   if (status === "loading") {
     return (
-      <div>
-        <PageHeader title="Dashboard" subtitle="Carregando sua vida financeira…" />
-        <DashboardSkeleton />
+      <div className="space-y-4">
+        <Skeleton className="h-36" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-72" />
+        </div>
       </div>
     );
   }
 
-  if (status === "error") {
-    return <ErrorState onRetry={() => void refresh()} />;
-  }
+  const widgets = settings.dashboardWidgets;
+  const show = (key: string) => widgets[key] !== false;
 
-  const saldoPositive = model.saldo >= 0;
+  const tiles: Array<{ key: string; label: string; value: string; cls: string; icon: JSX.Element; onClick: () => void; chip?: JSX.Element }> = [
+    {
+      key: "available",
+      label: "Saldo em contas",
+      value: formatBRL(model.snapshot.accounts),
+      cls: model.snapshot.accounts >= 0 ? "text-ink" : "text-down",
+      icon: <IconWallet size={17} />,
+      onClick: () => navigate("contas"),
+      chip: <span className="text-[11px] font-medium text-mut">{accounts.length} contas · separado de investimentos</span>,
+    },
+    {
+      key: "investments",
+      label: "Investimentos",
+      value: formatBRL(model.snapshot.investments),
+      cls: "text-ink",
+      icon: <IconTrendUp size={17} />,
+      onClick: () => navigate("investimentos"),
+      chip: (
+        <span className={`text-[11px] font-semibold ${model.snapshot.investments - investments.reduce((a, i) => a + i.investedAmount, 0) >= 0 ? "text-up" : "text-down"}`}>
+          {formatSignedBRL(model.snapshot.investments - investments.reduce((a, i) => a + i.investedAmount, 0))} lucro
+        </span>
+      ),
+    },
+    {
+      key: "debts",
+      label: "Dívidas + faturas",
+      value: formatBRL(model.snapshot.liabilities),
+      cls: "text-down",
+      icon: <IconBank size={17} />,
+      onClick: () => navigate("dividas"),
+      chip: <span className="text-[11px] font-medium text-mut">cartão: {formatBRLCompact(model.cardUsed)} em uso</span>,
+    },
+    {
+      key: "income",
+      label: "Receitas do mês",
+      value: formatBRL(model.receitas),
+      cls: "text-up",
+      icon: <IconArrowUpRight size={17} />,
+      onClick: () => navigate("movimentacoes"),
+    },
+    {
+      key: "expenses",
+      label: "Despesas do mês",
+      value: formatBRL(model.despesas),
+      cls: "text-down",
+      icon: <IconSwap size={17} />,
+      onClick: () => navigate("movimentacoes"),
+      chip: <DeltaChip current={model.despesas} previous={sumKind(transactions, EXPENSE_KINDS, shiftMonthKey(month, -1))} />,
+    },
+    {
+      key: "contributions",
+      label: "Aportes do mês",
+      value: formatBRL(model.aportes),
+      cls: "text-inv",
+      icon: <IconCoins size={17} />,
+      onClick: () => navigate("investimentos"),
+    },
+    {
+      key: "savings",
+      label: "Taxa de poupança",
+      value: model.savingsRate !== null ? formatPercent(model.savingsRate, 0) : "—",
+      cls: "text-gold",
+      icon: <IconChart size={17} />,
+      onClick: () => navigate("orcamentos"),
+      chip: <span className="text-[11px] font-medium text-mut">da receita fica com você</span>,
+    },
+  ];
 
   return (
-    <div>
-      <PageHeader
-        title={`${greeting()}!`}
-        subtitle={`Visão geral de ${monthLongLabel(month).toLowerCase()}.`}
-      />
-
-      <div className="grid grid-cols-12 gap-4">
-        {/* Saldo atual */}
-        <Card className="anim-rise relative col-span-12 overflow-hidden p-5 md:col-span-6 lg:col-span-4 lg:row-span-2">
-          <div className="dotgrid pointer-events-none absolute inset-0 opacity-40" />
-          <div className="relative">
-            <div className="flex items-center justify-between">
-              <p className="text-[13px] font-semibold text-mut">Saldo atual em conta</p>
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-pine-600/15 text-pine-600 dark:bg-up/10 dark:text-up">
-                <IconWallet size={17} />
+    <div className="space-y-4">
+      {/* Hero: patrimônio líquido */}
+      <Card className="anim-rise relative overflow-hidden p-6">
+        <div className="dotgrid pointer-events-none absolute inset-0 opacity-40" />
+        <span className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-pine-500/10 blur-2xl" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-mut">{greeting()} — seu panorama de {monthShortLabel(month)}</p>
+            {show("networth") ? (
+              <>
+                <p className="mt-2 text-[13px] font-semibold text-mut">Patrimônio líquido</p>
+                <p className="tnum font-display text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                  {formatBRL(animatedWealth)}
+                </p>
+              </>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+              <span className="flex items-center gap-1.5 font-semibold text-up">
+                <IconTrendUp size={15} />
+                {formatSignedBRL(model.currentWealth - model.prevMonthWealth)} vs mês passado
+              </span>
+              <span className="font-medium text-mut">
+                {formatSignedBRL(model.currentWealth - model.prevYearWealth)} em 12 meses
+              </span>
+              <span className={`font-semibold ${model.resultadoMes >= model.resultadoPrev ? "text-up" : "text-down"}`}>
+                resultado do mês {formatSignedBRL(model.resultadoMes)}
               </span>
             </div>
-            <p
-              className={`tnum mt-3 font-display text-[34px] font-bold leading-none tracking-tight ${
-                saldoPositive ? "text-ink" : "text-down"
-              }`}
-            >
-              {formatBRL(animatedSaldo)}
-            </p>
-            <div className="mt-2.5">
-              <DeltaChip current={model.saldo} previous={model.saldoPrev} />
-            </div>
-            <div className="mt-5 border-t border-dashed border-line pt-4">
-              <div className="flex items-baseline justify-between">
-                <p className="text-xs font-semibold text-mut">Patrimônio total</p>
-                <Badge tone="up">conta + investimentos</Badge>
-              </div>
-              <p className="tnum mt-1 font-display text-xl font-bold text-ink">
-                {formatBRL(model.patrimonio)}
-              </p>
-            </div>
-            <div className="mt-3">
-              <Sparkline values={model.pontos.map((p) => p.patrimonio)} />
-              <p className="mt-1 text-[11px] text-mut">Evolução do patrimônio · últimos 6 meses</p>
-            </div>
           </div>
-        </Card>
+          <div className="flex flex-col items-end gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("saude")}
+              className="group flex items-center gap-3 rounded-xl border border-line bg-card/80 px-4 py-3 backdrop-blur transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <span className="text-left">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-mut">Score financeiro</span>
+                <span className="text-[10px] text-mut">
+                  {model.issues.length > 0 ? `${model.issues.length} pendência(s) de dados` : "dados íntegros"}
+                </span>
+              </span>
+              <span
+                className={`tnum font-display text-2xl font-bold ${model.score.score >= 70 ? "text-up" : model.score.score >= 45 ? "text-gold" : "text-down"}`}
+              >
+                {model.score.score}
+              </span>
+            </button>
+            <Button variant="secondary" size="sm" icon={<IconSearch size={14} />} onClick={() => navigate("assistente")}>
+              Pergunte ao sistema
+            </Button>
+          </div>
+        </div>
+      </Card>
 
-        {/* Tiles do mês */}
-        <div className="col-span-12 md:col-span-6 lg:col-span-4">
-          <Tile
-            label="Receitas do mês"
-            value={formatBRL(model.receitasMes)}
-            icon={<IconArrowUpRight size={16} />}
-            tone="up"
-            delay={60}
+      {/* Tiles configuráveis */}
+      <div>
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setEditingWidgets((v) => !v)}
+            className="text-xs font-semibold text-mut transition-colors hover:text-ink"
           >
-            <DeltaChip current={model.receitasMes} previous={model.receitasPrev} />
-          </Tile>
+            {editingWidgets ? "Concluir personalização" : "Personalizar cards"}
+          </button>
         </div>
-        <div className="col-span-12 md:col-span-6 lg:col-span-4">
-          <Tile
-            label="Despesas do mês"
-            value={formatBRL(model.despesasMes)}
-            icon={<IconArrowDownRight size={16} />}
-            tone="down"
-            delay={120}
-          >
-            <DeltaChip current={model.despesasMes} previous={model.despesasPrev} />
-          </Tile>
-        </div>
-        <div className="col-span-12 md:col-span-6 lg:col-span-4">
-          <Tile
-            label="Resultado do mês"
-            value={formatSignedBRL(model.resultadoMes)}
-            icon={<IconTrendUp size={16} />}
-            tone={model.resultadoMes >= 0 ? "up" : "down"}
-            valueClass={model.resultadoMes >= 0 ? "text-up" : "text-down"}
-            delay={180}
-          >
-            <DeltaChip current={model.resultadoMes} previous={model.resultadoPrev} />
-          </Tile>
-        </div>
-        <div className="col-span-12 md:col-span-6 lg:col-span-4">
-          <Tile
-            label="Total investido"
-            value={formatBRL(model.investedTotal)}
-            icon={<IconCoins size={16} />}
-            tone="inv"
-            delay={240}
-          >
-            <span className="text-[11px] font-medium text-mut">
-              {investments.length} {investments.length === 1 ? "posição aberta" : "posições abertas"}
-            </span>
-          </Tile>
+        {editingWidgets ? (
+          <div className="anim-fadein mb-3 flex flex-wrap gap-2">
+            {tiles.map((tile) => {
+              const enabled = show(tile.key);
+              return (
+                <button
+                  key={tile.key}
+                  type="button"
+                  role="switch"
+                  aria-checked={enabled}
+                  onClick={() => updateSettings({ dashboardWidgets: { ...widgets, [tile.key]: !enabled } })}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${enabled ? "border-up/40 bg-up/10 text-up" : "border-line bg-card text-mut"}`}
+                >
+                  {tile.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+          {tiles.filter((tile) => show(tile.key)).map((tile, index) => (
+            <button
+              key={tile.key}
+              type="button"
+              onClick={tile.onClick}
+              className="anim-rise rounded-xl border border-line bg-card p-4 text-left shadow-sm shadow-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-linestrong hover:shadow-md"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-mut">{tile.label}</p>
+                <span className="text-mut/70">{tile.icon}</span>
+              </div>
+              <p className={`tnum mt-2 font-display text-lg font-bold sm:text-xl ${tile.cls}`}>{tile.value}</p>
+              {tile.chip ? <div className="mt-1.5">{tile.chip}</div> : null}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Gráficos */}
-      <div className="mt-4 grid grid-cols-12 gap-4">
-        <Card className="anim-rise col-span-12 p-5 lg:col-span-7" hover>
-          <div style={{ animationDelay: "120ms" }}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card className="anim-rise p-5" hover>
+          <div style={{ animationDelay: "140ms" }}>
             <SectionHeader
-              title="Receitas × Despesas"
-              subtitle="Fluxo de caixa dos últimos 6 meses"
-              aside={<CashflowLegend variant="dual" />}
+              title="Receitas × despesas"
+              subtitle="Últimos 6 meses"
+              aside={<CashflowLegend />}
             />
-            <CashflowChart data={model.pontos} variant="dual" />
+            <CashflowChart data={model.resultSeries} height={240} />
           </div>
         </Card>
-        <Card className="anim-rise col-span-12 p-5 lg:col-span-5" hover>
+        <Card className="anim-rise p-5" hover>
           <div style={{ animationDelay: "180ms" }}>
             <SectionHeader
               title="Evolução do patrimônio"
-              subtitle="Conta + valor de mercado dos investimentos"
+              subtitle="Caixa + investimentos + bens (12 meses)"
+              aside={
+                <button type="button" onClick={() => navigate("patrimonio")} className="text-xs font-semibold text-inv hover:underline">
+                  detalhes
+                </button>
+              }
             />
-            <WealthChart data={model.pontos.map((p) => ({ label: p.label, patrimonio: p.patrimonio }))} />
+            <WealthChart data={model.series.map((p) => ({ label: p.label, patrimonio: p.patrimonio }))} height={240} />
           </div>
         </Card>
       </div>
 
-      {/* Últimas movimentações + resumos */}
-      <div className="mt-4 grid grid-cols-12 gap-4">
-        <Card className="anim-rise col-span-12 overflow-hidden lg:col-span-7">
+      {/* Colunas: movimentações / próximos vencimentos / metas */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="anim-rise overflow-hidden" hover>
           <div style={{ animationDelay: "220ms" }}>
-            <SectionHeader
-              title="Últimas movimentações"
-              subtitle="Seus lançamentos mais recentes"
-              aside={
-                <button
-                  type="button"
-                  onClick={() => navigate("movimentacoes")}
-                  className="text-[13px] font-semibold text-up transition-colors hover:text-pine-700 dark:hover:text-up"
-                >
-                  Ver todas →
-                </button>
-              }
-            />
+            <div className="flex items-center justify-between p-5 pb-3">
+              <SectionHeader title="Últimas movimentações" />
+              <button type="button" onClick={() => navigate("movimentacoes")} className="text-xs font-semibold text-inv hover:underline">
+                ver extrato
+              </button>
+            </div>
             {model.recent.length === 0 ? (
-              <EmptyState
-                compact
-                icon={<IconWallet size={22} />}
-                title="Nenhuma movimentação ainda"
-                description="Adicione sua primeira receita ou despesa para começar."
-                action={
-                  <button
-                    type="button"
-                    onClick={() => openTransactionModal()}
-                    className="text-sm font-semibold text-up hover:underline"
-                  >
-                    + Adicionar movimentação
-                  </button>
-                }
-              />
+              <EmptyState compact icon={<IconSwap size={18} />} title="Nada por aqui" description="Adicione sua primeira movimentação." action={<Button size="sm" onClick={() => openTransactionModal()}>Adicionar</Button>} />
             ) : (
               <ul className="divide-y divide-line">
-                {model.recent.map((tx, index) => (
-                  <TransactionRow key={tx.id} tx={tx} delay={240 + index * 40} />
+                {model.recent.map((tx) => {
+                  const meta = KIND_META[tx.kind];
+                  const sign = tx.kind === "despesa" || tx.kind === "taxa" || tx.kind === "aporte" ? -1 : 1;
+                  return (
+                    <li key={tx.id} className="flex items-center gap-3 px-5 py-2.5">
+                      <span className="h-7 w-1 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-ink">{tx.description}</span>
+                        <span className="text-[11px] text-mut">
+                          {formatDayMonth(tx.date)} · {categoryPath(tx.subcategoryId ?? tx.categoryId)}
+                        </span>
+                      </span>
+                      <span className={`tnum shrink-0 text-[13px] font-bold ${sign > 0 ? "text-up" : "text-down"}`}>
+                        {formatSignedBRL(tx.amount * sign)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </Card>
+
+        <Card className="anim-rise overflow-hidden" hover>
+          <div style={{ animationDelay: "260ms" }}>
+            <div className="flex items-center justify-between p-5 pb-3">
+              <SectionHeader title="Próximos 7 dias" subtitle="Parcelas e compromissos" />
+              <button type="button" onClick={() => navigate("recorrencias")} className="text-xs font-semibold text-inv hover:underline">
+                recorrências
+              </button>
+            </div>
+            {model.upcoming.length === 0 ? (
+              <EmptyState compact icon={<IconCalendar size={18} />} title="Semana tranquila" description="Nenhum vencimento nos próximos 7 dias." />
+            ) : (
+              <ul className="divide-y divide-line">
+                {model.upcoming.map((item) => (
+                  <li key={item.id} className="flex items-center gap-3 px-5 py-2.5">
+                    <span className="flex h-9 w-11 shrink-0 flex-col items-center justify-center rounded-lg bg-down/10 text-down">
+                      <span className="tnum text-[13px] font-bold leading-none">{item.date.slice(8, 10)}</span>
+                      <span className="text-[9px] font-semibold uppercase">{formatDayMonth(item.date).split(" ")[1]}</span>
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{item.label}</span>
+                    <span className="tnum shrink-0 text-[13px] font-bold text-down">{formatBRL(item.amount)}</span>
+                  </li>
                 ))}
               </ul>
             )}
           </div>
         </Card>
 
-        <div className="col-span-12 space-y-4 lg:col-span-5">
-          <Card className="anim-rise p-5" hover>
-            <div style={{ animationDelay: "260ms" }}>
-              <SectionHeader
-                title="Para onde foi o dinheiro"
-                subtitle="Maiores categorias de despesa do mês"
-              />
-              <CategoryBars
-                items={model.topDespesas.map((item) => ({
-                  label: item.label,
-                  value: item.total,
-                  pct: item.pct,
-                  color: item.color,
-                }))}
-                max={4}
-              />
+        <Card className="anim-rise overflow-hidden" hover>
+          <div style={{ animationDelay: "300ms" }}>
+            <div className="flex items-center justify-between p-5 pb-3">
+              <SectionHeader title="Metas" subtitle="Você está no caminho?" />
+              <button type="button" onClick={() => navigate("metas")} className="text-xs font-semibold text-inv hover:underline">
+                todas
+              </button>
             </div>
-          </Card>
-
-          <Card className="anim-rise p-5" hover>
-            <div style={{ animationDelay: "300ms" }}>
-              <SectionHeader
-                title="Metas em andamento"
-                aside={
-                  <button
-                    type="button"
-                    onClick={() => navigate("metas")}
-                    className="flex items-center gap-1 text-[13px] font-semibold text-up hover:underline"
-                  >
-                    <IconTarget size={14} /> Ver metas
-                  </button>
-                }
-              />
-              {model.goalsPreview.length === 0 ? (
-                <p className="py-4 text-sm text-mut">Nenhuma meta criada ainda.</p>
-              ) : (
-                <ul className="space-y-4">
-                  {model.goalsPreview.map((goal) => {
-                    const pct = goal.targetAmount > 0 ? goal.currentAmount / goal.targetAmount : 0;
-                    return (
-                      <li key={goal.id}>
-                        <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px]">
-                          <span className="truncate font-semibold text-ink">{goal.name}</span>
-                          <span className="tnum font-semibold text-mut">
-                            {Math.round(Math.min(1, pct) * 100)}%
-                          </span>
-                        </div>
-                        <ProgressBar value={pct} color={goalColorHex(goal.color)} />
-                        <p className="tnum mt-1 text-[11px] text-mut">
-                          {formatBRL(goal.currentAmount)} de {formatBRL(goal.targetAmount)}
-                        </p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </Card>
-        </div>
+            {goals.length === 0 ? (
+              <EmptyState compact icon={<IconTarget size={18} />} title="Nenhuma meta" description="Crie objetivos com prazo e valor." />
+            ) : (
+              <ul className="space-y-3.5 px-5 pb-5">
+                {goals.slice(0, 4).map((goal) => {
+                  const pct = goal.targetAmount > 0 ? clamp(goal.currentAmount / goal.targetAmount, 0, 1) : 0;
+                  return (
+                    <li key={goal.id}>
+                      <div className="mb-1 flex items-baseline justify-between gap-2 text-[13px]">
+                        <span className="truncate font-semibold text-ink">{goal.name}</span>
+                        <span className="tnum shrink-0 font-bold text-mut">{Math.round(pct * 100)}%</span>
+                      </div>
+                      <ProgressBar value={pct} color="var(--up)" thickness="h-1.5" />
+                    </li>
+                  );
+                })}
+                {model.budgetsOver.length > 0 ? (
+                  <li className="rounded-lg border border-down/30 bg-down/5 px-3 py-2 text-[11px] font-medium text-down">
+                    {model.budgetsOver.length} orçamento(s) estourado(s): {model.budgetsOver.map((b) => b.label).join(", ")}.
+                  </li>
+                ) : null}
+              </ul>
+            )}
+          </div>
+        </Card>
       </div>
+
+      <p className="pb-2 text-center text-[11px] text-mut">
+        {recurrences.filter((r) => r.active).length} recorrências ativas · dados salvos neste navegador ·
+        resultado do mês atual {formatSignedBRL(model.resultadoMes)} vs {formatSignedBRL(model.resultadoYearAgo)} no mesmo mês do ano passado
+      </p>
     </div>
   );
 }

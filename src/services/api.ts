@@ -1,49 +1,113 @@
 /**
- * "API" da aplicação. Hoje lê/grava no armazenamento local com uma latência
- * simulada (para exercitar estados de loading); amanhã pode apontar para HTTP
- * mantendo as mesmas assinaturas assíncronas.
+ * "API" da aplicação. Hoje lê/grava no armazenamento local com latência
+ * simulada (para exercitar estados de loading); amanhã pode apontar para
+ * HTTP mantendo as mesmas assinaturas assíncronas.
+ *
+ * Ordem de carga: v2 existente → carrega; legado v1 → migra; nenhum → seed.
  */
-import type { AppData, Goal, Investment, Transaction } from "../types";
-import { buildSeedData } from "../data/seed";
+
+import type {
+  Account,
+  AppData,
+  Asset,
+  Automation,
+  Budget,
+  CreditCard,
+  Debt,
+  Goal,
+  Investment,
+  InvoiceExtras,
+  InvoicePayment,
+  Recurrence,
+  Rule,
+  Settings,
+  Transaction,
+} from "../types";
+import { buildSeedData, DEFAULT_SETTINGS } from "../data/seed";
+import { hasLegacyData, hasV2Data, migrateV1ToV2 } from "./migration";
 import { storage, STORAGE_KEYS } from "./storage";
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const simulatedLatency = () => delay(300 + Math.random() * 300);
+const simulatedLatency = () => delay(300 + Math.random() * 250);
+
+function readCollection<T>(key: string): T[] {
+  return storage.read<T[]>(key) ?? [];
+}
 
 export async function fetchAppData(): Promise<AppData> {
   await simulatedLatency();
-  const seeded = storage.read<boolean>(STORAGE_KEYS.seeded);
 
-  if (!seeded) {
+  if (!hasV2Data() && hasLegacyData()) {
+    const result = migrateV1ToV2();
+    return {
+      schemaVersion: 2,
+      transactions: result.transactions,
+      accounts: [result.account],
+      cards: [],
+      investments: result.investments,
+      debts: [],
+      goals: result.goals,
+      budgets: [],
+      assets: [],
+      recurrences: [],
+      rules: [],
+      automations: [],
+      invoiceExtras: [],
+      invoicePayments: [],
+      settings: { ...DEFAULT_SETTINGS },
+    };
+  }
+
+  if (!hasV2Data()) {
     const seed = buildSeedData();
-    storage.write(STORAGE_KEYS.transactions, seed.transactions);
-    storage.write(STORAGE_KEYS.investments, seed.investments);
-    storage.write(STORAGE_KEYS.goals, seed.goals);
+    persistAll(seed);
     storage.write(STORAGE_KEYS.seeded, true);
+    storage.write(STORAGE_KEYS.schemaVersion, 2);
     return seed;
   }
 
   return {
-    transactions: storage.read<Transaction[]>(STORAGE_KEYS.transactions) ?? [],
-    investments: storage.read<Investment[]>(STORAGE_KEYS.investments) ?? [],
-    goals: storage.read<Goal[]>(STORAGE_KEYS.goals) ?? [],
+    schemaVersion: storage.read<number>(STORAGE_KEYS.schemaVersion) ?? 2,
+    transactions: readCollection<Transaction>(STORAGE_KEYS.transactions),
+    accounts: readCollection<Account>(STORAGE_KEYS.accounts),
+    cards: readCollection<CreditCard>(STORAGE_KEYS.cards),
+    investments: readCollection<Investment>(STORAGE_KEYS.investments),
+    debts: readCollection<Debt>(STORAGE_KEYS.debts),
+    goals: readCollection<Goal>(STORAGE_KEYS.goals),
+    budgets: readCollection<Budget>(STORAGE_KEYS.budgets),
+    assets: readCollection<Asset>(STORAGE_KEYS.assets),
+    recurrences: readCollection<Recurrence>(STORAGE_KEYS.recurrences),
+    rules: readCollection<Rule>(STORAGE_KEYS.rules),
+    automations: readCollection<Automation>(STORAGE_KEYS.automations),
+    invoiceExtras: readCollection<InvoiceExtras>(STORAGE_KEYS.invoiceExtras),
+    invoicePayments: readCollection<InvoicePayment>(STORAGE_KEYS.invoicePayments),
+    settings: storage.read<Settings>(STORAGE_KEYS.settings) ?? { ...DEFAULT_SETTINGS },
   };
 }
 
-export async function persistTransactions(items: Transaction[]): Promise<void> {
-  storage.write(STORAGE_KEYS.transactions, items);
-  await delay(80);
+export function persistAll(data: AppData): void {
+  storage.write(STORAGE_KEYS.transactions, data.transactions);
+  storage.write(STORAGE_KEYS.accounts, data.accounts);
+  storage.write(STORAGE_KEYS.cards, data.cards);
+  storage.write(STORAGE_KEYS.investments, data.investments);
+  storage.write(STORAGE_KEYS.debts, data.debts);
+  storage.write(STORAGE_KEYS.goals, data.goals);
+  storage.write(STORAGE_KEYS.budgets, data.budgets);
+  storage.write(STORAGE_KEYS.assets, data.assets);
+  storage.write(STORAGE_KEYS.recurrences, data.recurrences);
+  storage.write(STORAGE_KEYS.rules, data.rules);
+  storage.write(STORAGE_KEYS.automations, data.automations);
+  storage.write(STORAGE_KEYS.invoiceExtras, data.invoiceExtras);
+  storage.write(STORAGE_KEYS.invoicePayments, data.invoicePayments);
+  storage.write(STORAGE_KEYS.settings, data.settings);
 }
 
-export async function persistInvestments(items: Investment[]): Promise<void> {
-  storage.write(STORAGE_KEYS.investments, items);
-  await delay(80);
+export async function persistCollection(key: string, items: unknown): Promise<void> {
+  storage.write(key, items);
+  await delay(60);
 }
 
-export async function persistGoals(items: Goal[]): Promise<void> {
-  storage.write(STORAGE_KEYS.goals, items);
-  await delay(80);
-}
+/* ------------------------------ Tema ----------------------------------- */
 
 export type Theme = "light" | "dark";
 

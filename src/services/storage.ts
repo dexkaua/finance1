@@ -55,10 +55,32 @@ export const storage: StorageAdapter = {
   remove: (key: string) => activeAdapter.remove(key),
 };
 
-export const STORAGE_KEYS = {
+/** Chaves legadas (v1) — preservadas como backup, nunca apagadas. */
+export const LEGACY_KEYS = {
   transactions: "cf1:transactions",
   investments: "cf1:investments",
   goals: "cf1:goals",
   seeded: "cf1:seeded",
   theme: "cf1:theme",
-} as const;
+};
+
+/** Chaves v2 — uma por coleção, para migrações incrementais. */
+export const STORAGE_KEYS = {
+  schemaVersion: "cf2:schemaVersion",
+  transactions: "cf2:transactions",
+  accounts: "cf2:accounts",
+  cards: "cf2:cards",
+  investments: "cf2:investments",
+  debts: "cf2:debts",
+  goals: "cf2:goals",
+  budgets: "cf2:budgets",
+  assets: "cf2:assets",
+  recurrences: "cf2:recurrences",
+  rules: "cf2:rules",
+  automations: "cf2:automations",
+  invoiceExtras: "cf2:invoiceExtras",
+  invoicePayments: "cf2:invoicePayments",
+  settings: "cf2:settings",
+  seeded: "cf2:seeded",
+  theme: "cf1:theme", // tema compartilhado entre versões
+};

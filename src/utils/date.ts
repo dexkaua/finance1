@@ -11,6 +11,11 @@ export function todayISO(): string {
   return toISODate(new Date());
 }
 
+export function parseISO(isoDate: string): Date {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function monthKeyOf(isoDate: string): string {
   return isoDate.slice(0, 7);
 }
@@ -25,7 +30,6 @@ export function shiftMonthKey(key: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Últimos `count` meses (do mais antigo ao atual, inclusive). */
 export function lastMonthKeys(count: number): string[] {
   const current = currentMonthKey();
   const keys: string[] = [];
@@ -43,8 +47,7 @@ export function monthShortLabel(key: string): string {
   const label = monthDate(key)
     .toLocaleDateString("pt-BR", { month: "short" })
     .replace(".", "");
-  const year = key.slice(2, 4);
-  return `${label}/${year}`;
+  return `${label}/${key.slice(2, 4)}`;
 }
 
 /** "Janeiro de 2026" */
@@ -52,11 +55,6 @@ export function monthLongLabel(key: string): string {
   const month = monthDate(key).toLocaleDateString("pt-BR", { month: "long" });
   const capitalized = month.charAt(0).toUpperCase() + month.slice(1);
   return `${capitalized} de ${key.slice(0, 4)}`;
-}
-
-function parseISO(isoDate: string): Date {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return new Date(y, m - 1, d);
 }
 
 /** "05 fev 2026" */
@@ -76,25 +74,61 @@ export function formatDayMonth(isoDate: string): string {
 }
 
 export function daysUntil(isoDate: string): number {
-  const ms = parseISO(isoDate).getTime() - Date.now();
-  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+  const ms = parseISO(isoDate).getTime() - parseISO(todayISO()).getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
 }
 
-/** Meses cheios restantes até a data (mínimo 1 para cálculo de aporte mensal). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((parseISO(b).getTime() - parseISO(a).getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export function monthsUntil(isoDate: string): number {
   const target = parseISO(isoDate);
   const now = new Date();
-  const diff =
-    (target.getFullYear() - now.getFullYear()) * 12 +
-    (target.getMonth() - now.getMonth());
-  return Math.max(1, diff);
+  return Math.max(1, (target.getFullYear() - now.getFullYear()) * 12 + target.getMonth() - now.getMonth());
 }
 
-/** Saudação conforme horário local. */
-export function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 6) return "Boa madrugada";
-  if (h < 12) return "Bom dia";
-  if (h < 18) return "Boa tarde";
-  return "Boa noite";
+export function addDaysISO(isoDate: string, days: number): string {
+  const d = parseISO(isoDate);
+  d.setDate(d.getDate() + days);
+  return toISODate(d);
+}
+
+export function addMonthsISO(isoDate: string, months: number): string {
+  const d = parseISO(isoDate);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return toISODate(d);
+}
+
+export function lastDayOfMonthISO(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  return toISODate(new Date(y, m, 0));
+}
+
+export function yearOf(isoDate: string): string {
+  return isoDate.slice(0, 4);
+}
+
+/** Data do dia `day` dentro de um mês (ajusta para o último dia quando necessário). */
+export function dayInMonth(monthKey: string, day: number): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return toISODate(new Date(y, m - 1, Math.min(day, last)));
+}
+
+/**
+ * Vencimento da fatura de um mês: se o dia de vencimento é >= dia de fechamento,
+ * vence no próprio mês; senão, no mês seguinte (ciclo de cartão real).
+ */
+export function invoiceDueDate(monthKey: string, closingDay: number, dueDay: number): string {
+  const dueMonth = dueDay >= closingDay ? monthKey : shiftMonthKey(monthKey, 1);
+  return dayInMonth(dueMonth, dueDay);
+}
+
+export function invoiceClosingDate(monthKey: string, closingDay: number): string {
+  return dayInMonth(monthKey, closingDay);
 }

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import type { Investment, InvestmentType } from "../../types";
+import { useEffect, useMemo, useState } from "react";
+import type { Investment, InvestmentType, YieldMode } from "../../types";
 import { useFinance } from "../../contexts/FinanceContext";
 import { useToast } from "../../contexts/ToastContext";
-import { INVESTMENT_TYPES } from "../../data/categories";
+import { INVESTMENT_TYPES, YIELD_MODES, investmentTypeMeta } from "../../data/categories";
 import { todayISO } from "../../utils/date";
 import { formatBRL, parseCurrencyInput } from "../../utils/format";
 import { validateInvestment, type FieldErrors } from "../../utils/validation";
@@ -14,11 +14,23 @@ interface FormState {
   name: string;
   type: InvestmentType | "";
   institution: string;
+  broker: string;
   investedAmount: string;
   currentValue: string;
-  annualRate: string;
+  quantity: string;
+  avgPrice: string;
+  currentPrice: string;
+  fees: string;
+  taxes: string;
+  yieldMode: YieldMode;
+  yieldRate: string;
   startDate: string;
+  maturityDate: string;
+  note: string;
 }
+
+const numToStr = (value: number | null): string =>
+  value === null ? "" : String(value).replace(".", ",");
 
 function initialState(editing: Investment | null): FormState {
   if (editing) {
@@ -26,22 +38,46 @@ function initialState(editing: Investment | null): FormState {
       name: editing.name,
       type: editing.type,
       institution: editing.institution,
+      broker: editing.broker ?? "",
       investedAmount: editing.investedAmount.toFixed(2).replace(".", ","),
       currentValue: editing.currentValue.toFixed(2).replace(".", ","),
-      annualRate: editing.annualRate === null ? "" : String(editing.annualRate).replace(".", ","),
+      quantity: numToStr(editing.quantity),
+      avgPrice: numToStr(editing.avgPrice),
+      currentPrice: numToStr(editing.currentPrice),
+      fees: editing.fees > 0 ? String(editing.fees).replace(".", ",") : "",
+      taxes: editing.taxes > 0 ? String(editing.taxes).replace(".", ",") : "",
+      yieldMode: editing.yield.mode,
+      yieldRate: editing.yield.rate > 0 ? String(editing.yield.rate).replace(".", ",") : "",
       startDate: editing.startDate,
+      maturityDate: editing.maturityDate ?? "",
+      note: editing.note ?? "",
     };
   }
   return {
     name: "",
     type: "",
     institution: "",
+    broker: "",
     investedAmount: "",
     currentValue: "",
-    annualRate: "",
+    quantity: "",
+    avgPrice: "",
+    currentPrice: "",
+    fees: "",
+    taxes: "",
+    yieldMode: "manual",
+    yieldRate: "",
     startDate: todayISO(),
+    maturityDate: "",
+    note: "",
   };
 }
+
+const parseNum = (raw: string): number | null => {
+  if (raw.trim() === "") return null;
+  const n = Number(raw.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+};
 
 export function InvestmentModal({
   open,
@@ -52,7 +88,7 @@ export function InvestmentModal({
   editing: Investment | null;
   onClose: () => void;
 }) {
-  const { addInvestment, updateInvestment } = useFinance();
+  const { addInvestment, updateInvestment, settings } = useFinance();
   const { push } = useToast();
   const [form, setForm] = useState<FormState>(() => initialState(null));
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -64,6 +100,11 @@ export function InvestmentModal({
     }
   }, [open, editing]);
 
+  const fixedIncome = useMemo(() => {
+    if (!form.type) return false;
+    return investmentTypeMeta(form.type as InvestmentType).fixedIncome;
+  }, [form.type]);
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => {
@@ -74,40 +115,65 @@ export function InvestmentModal({
     });
   };
 
+  const yieldHint = useMemo(() => {
+    const rate = Number(form.yieldRate.replace(",", "."));
+    if (!Number.isFinite(rate) || form.yieldMode === "manual") return null;
+    const invested = parseCurrencyInput(form.investedAmount) ?? 0;
+    if (invested <= 0) return null;
+    let annualPct = 0;
+    if (form.yieldMode === "fixa") annualPct = rate;
+    else if (form.yieldMode === "cdi") annualPct = (rate / 100) * settings.benchmarks.cdi;
+    else if (form.yieldMode === "selic") annualPct = (rate / 100) * settings.benchmarks.selic;
+    else if (form.yieldMode === "ipca") annualPct = (1 + settings.benchmarks.ipca / 100) * (1 + rate / 100) * 100 - 100;
+    const monthly = Math.pow(1 + annualPct / 100, 1 / 12) - 1;
+    return `Projeção bruta (juros compostos, índices configurados): ${formatBRL(invested * monthly)}/mês · ${annualPct.toFixed(2)}% a.a.`;
+  }, [form.yieldMode, form.yieldRate, form.investedAmount, settings.benchmarks]);
+
   const handleSubmit = () => {
     const validation = validateInvestment(form);
     if (Object.keys(validation).length > 0) {
       setErrors(validation);
       return;
     }
-    const invested = Math.round((parseCurrencyInput(form.investedAmount) ?? 0) * 100) / 100;
-    const current = Math.round((parseCurrencyInput(form.currentValue) ?? 0) * 100) / 100;
-    const rateText = form.annualRate.trim().replace(",", ".");
     const input = {
       name: form.name.trim(),
       type: form.type as InvestmentType,
       institution: form.institution.trim(),
-      investedAmount: invested,
-      currentValue: current,
-      annualRate: rateText === "" ? null : Number(rateText),
+      broker: form.broker.trim() || undefined,
+      investedAmount: Math.round((parseCurrencyInput(form.investedAmount) ?? 0) * 100) / 100,
+      currentValue: Math.round((parseCurrencyInput(form.currentValue) ?? 0) * 100) / 100,
+      quantity: parseNum(form.quantity),
+      avgPrice: parseNum(form.avgPrice),
+      currentPrice: parseNum(form.currentPrice),
+      fees: parseNum(form.fees) ?? 0,
+      taxes: parseNum(form.taxes) ?? 0,
       startDate: form.startDate,
+      maturityDate: form.maturityDate || null,
+      yield: {
+        mode: form.yieldMode,
+        rate: form.yieldMode === "manual" ? 0 : Number(form.yieldRate.replace(",", ".")) || 0,
+      },
+      note: form.note.trim() || undefined,
     };
     if (editing) {
       updateInvestment(editing.id, input);
-      push("success", "Investimento atualizado", `${input.name} · ${formatBRL(current)}`);
+      push("success", "Investimento atualizado", input.name);
     } else {
       addInvestment(input);
-      push("success", "Investimento cadastrado", `${input.name} · ${formatBRL(invested)}`);
+      push("success", "Investimento cadastrado", `${input.name} · ${formatBRL(input.investedAmount)}`);
     }
     onClose();
   };
+
+  const modeMeta = YIELD_MODES.find((m) => m.value === form.yieldMode);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={editing ? "Editar investimento" : "Novo investimento"}
-      subtitle="Registre posição, instituição e rentabilidade."
+      subtitle="Posição, instituição, rentabilidade e custos."
+      size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -127,13 +193,13 @@ export function InvestmentModal({
           handleSubmit();
         }}
       >
-        <div className="grid grid-cols-2 gap-3">
-          <Field id="inv-name" label="Nome" error={errors.name}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr]">
+          <Field id="inv-name" label="Nome do ativo" error={errors.name}>
             <TextInput
               id="inv-name"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              placeholder="Ex.: Tesouro Selic 2029"
+              placeholder="Ex.: Tesouro Selic 2029, PETR4, CDB…"
               invalid={Boolean(errors.name)}
               maxLength={60}
             />
@@ -155,16 +221,27 @@ export function InvestmentModal({
           </Field>
         </div>
 
-        <Field id="inv-institution" label="Instituição" error={errors.institution}>
-          <TextInput
-            id="inv-institution"
-            value={form.institution}
-            onChange={(e) => set("institution", e.target.value)}
-            placeholder="Ex.: XP, Rico, Itaú…"
-            invalid={Boolean(errors.institution)}
-            maxLength={60}
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field id="inv-institution" label="Instituição" error={errors.institution}>
+            <TextInput
+              id="inv-institution"
+              value={form.institution}
+              onChange={(e) => set("institution", e.target.value)}
+              placeholder="Ex.: Tesouro Direto, Petrobras…"
+              invalid={Boolean(errors.institution)}
+              maxLength={60}
+            />
+          </Field>
+          <Field id="inv-broker" label="Corretora (opcional)">
+            <TextInput
+              id="inv-broker"
+              value={form.broker}
+              onChange={(e) => set("broker", e.target.value)}
+              placeholder="Ex.: XP, Rico, NuInvest"
+              maxLength={60}
+            />
+          </Field>
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <Field id="inv-invested" label="Valor investido" error={errors.investedAmount}>
@@ -185,33 +262,105 @@ export function InvestmentModal({
           </Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field
-            id="inv-rate"
-            label="Rentabilidade (% a.a.)"
-            error={errors.annualRate}
-            hint="Deixe vazio se for renda variável."
-          >
+        <div className="grid grid-cols-3 gap-3">
+          <Field id="inv-qty" label="Quantidade" error={errors.quantity}>
             <TextInput
-              id="inv-rate"
+              id="inv-qty"
               inputMode="decimal"
-              value={form.annualRate}
-              onChange={(e) => set("annualRate", e.target.value)}
-              placeholder="Ex.: 11,5"
-              invalid={Boolean(errors.annualRate)}
+              value={form.quantity}
+              onChange={(e) => set("quantity", e.target.value)}
+              placeholder="Ex.: 120"
+              invalid={Boolean(errors.quantity)}
             />
           </Field>
-          <Field id="inv-start" label="Data de início" error={errors.startDate}>
+          <Field id="inv-avg" label="Preço médio" error={errors.avgPrice}>
             <TextInput
-              id="inv-start"
-              type="date"
-              value={form.startDate}
-              max={todayISO()}
-              onChange={(e) => set("startDate", e.target.value)}
-              invalid={Boolean(errors.startDate)}
+              id="inv-avg"
+              inputMode="decimal"
+              value={form.avgPrice}
+              onChange={(e) => set("avgPrice", e.target.value)}
+              placeholder="Ex.: 28,50"
+              invalid={Boolean(errors.avgPrice)}
+            />
+          </Field>
+          <Field id="inv-price" label="Preço atual" error={errors.currentPrice}>
+            <TextInput
+              id="inv-price"
+              inputMode="decimal"
+              value={form.currentPrice}
+              onChange={(e) => set("currentPrice", e.target.value)}
+              placeholder="Ex.: 34,20"
+              invalid={Boolean(errors.currentPrice)}
             />
           </Field>
         </div>
+
+        <div className="rounded-xl border border-line bg-card2/60 p-3.5">
+          <p className="text-[13px] font-bold text-ink">Rentabilidade {fixedIncome ? "(renda fixa)" : ""}</p>
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1.2fr_1fr]">
+            <Field id="inv-yield-mode" label="Modelo">
+              <SelectInput
+                id="inv-yield-mode"
+                value={form.yieldMode}
+                onChange={(e) => set("yieldMode", e.target.value as YieldMode)}
+              >
+                {YIELD_MODES.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field
+              id="inv-yield-rate"
+              label={
+                form.yieldMode === "cdi" || form.yieldMode === "selic"
+                  ? "% do indexador"
+                  : form.yieldMode === "ipca"
+                    ? "Taxa real (% a.a.)"
+                    : "Taxa (% a.a.)"
+              }
+              error={errors.yieldRate}
+              hint={form.yieldMode === "manual" ? "Acompanhar apenas os valores informados." : modeMeta?.hint}
+            >
+              <TextInput
+                id="inv-yield-rate"
+                inputMode="decimal"
+                value={form.yieldRate}
+                onChange={(e) => set("yieldRate", e.target.value)}
+                placeholder={form.yieldMode === "cdi" ? "Ex.: 110" : form.yieldMode === "ipca" ? "Ex.: 6,1" : "Ex.: 12"}
+                invalid={Boolean(errors.yieldRate)}
+                disabled={form.yieldMode === "manual"}
+              />
+            </Field>
+          </div>
+          {yieldHint ? <p className="anim-fadein mt-2 text-xs font-medium text-inv">{yieldHint}</p> : null}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field id="inv-fees" label="Taxas" error={errors.fees}>
+            <TextInput id="inv-fees" inputMode="decimal" value={form.fees} onChange={(e) => set("fees", e.target.value)} placeholder="0,00" invalid={Boolean(errors.fees)} />
+          </Field>
+          <Field id="inv-taxes" label="Impostos" error={errors.taxes}>
+            <TextInput id="inv-taxes" inputMode="decimal" value={form.taxes} onChange={(e) => set("taxes", e.target.value)} placeholder="0,00" invalid={Boolean(errors.taxes)} />
+          </Field>
+          <Field id="inv-start" label="Data de compra" error={errors.startDate}>
+            <TextInput id="inv-start" type="date" value={form.startDate} max={todayISO()} onChange={(e) => set("startDate", e.target.value)} invalid={Boolean(errors.startDate)} />
+          </Field>
+          <Field id="inv-maturity" label="Vencimento" error={errors.maturityDate}>
+            <TextInput id="inv-maturity" type="date" value={form.maturityDate} onChange={(e) => set("maturityDate", e.target.value)} invalid={Boolean(errors.maturityDate)} />
+          </Field>
+        </div>
+
+        <Field id="inv-note" label="Observações (opcional)">
+          <TextInput
+            id="inv-note"
+            value={form.note}
+            onChange={(e) => set("note", e.target.value)}
+            placeholder="Ex.: isento de IR, carência até…"
+            maxLength={140}
+          />
+        </Field>
       </form>
     </Modal>
   );
