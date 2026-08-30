@@ -33,7 +33,7 @@ export function CsvImportModal({
   defaultAccountId: string;
   onClose: () => void;
 }) {
-  const { importTransactions, createInstallmentPurchase, transactions } = useFinance();
+  const { importTransactions, transactions } = useFinance();
   const { push } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -105,7 +105,7 @@ export function CsvImportModal({
     const today = new Date();
     const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
-    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null; installments?: number; isPayment?: boolean }> =
+    const items: Array<{ input: TransactionInput | null; duplicate: boolean; invalid: string | null; isPayment?: boolean; isCreditCardPurchase?: boolean }> =
       rows.map((row) => {
         const date = parseCsvDate(row[di] ?? "");
         const description = (row[dsi] ?? "").trim().toLowerCase();
@@ -127,17 +127,41 @@ export function CsvImportModal({
               ? "aporte"
               : defaultKind;
 
-        let installments: number | undefined;
+        // Para compras no cartão, verificar se é a última parcela
+        // Formato esperado: "X/Y" onde X é parcela atual, Y é total
+        // Se X === Y, é a última parcela (ou compra à vista em 1/1)
+        // Se X < Y, ainda há parcelas futuras
+        let shouldImportInstallment = false;
         if (isCreditCardPurchase && ii >= 0) {
-          const instVal = parseInt(row[ii]?.replace(/[^0-9]/g, "") || "1", 10);
-          if (!isNaN(instVal) && instVal > 1) installments = instVal;
+          const installmentCell = row[ii] ?? "";
+          const match = installmentCell.match(/(\d+)\s*\/\s*(\d+)/);
+          if (match) {
+            const currentInstallment = parseInt(match[1], 10);
+            const totalInstallments = parseInt(match[2], 10);
+            // Importar apenas se for a última parcela OU se "onlyCurrentInvoice" estiver desmarcado
+            if (onlyCurrentInvoice) {
+              // Apenas última parcela (quando currentInstallment === totalInstallments)
+              shouldImportInstallment = currentInstallment === totalInstallments;
+            } else {
+              // Importar todas as parcelas
+              shouldImportInstallment = true;
+            }
+          } else {
+            // Sem informação de parcela, importar normalmente
+            shouldImportInstallment = true;
+          }
+        } else {
+          shouldImportInstallment = true;
         }
 
         if (!date) return { input: null, duplicate: false, invalid: "Data inválida", isPayment };
         if (description.length < 2) return { input: null, duplicate: false, invalid: "Sem descrição", isPayment };
         if (rawAmount === null) return { input: null, duplicate: false, invalid: "Valor inválido", isPayment };
 
+        // Para pagamentos de fatura, usar valor absoluto (já que vem negativo no CSV)
+        // Para compras no cartão, também usar valor absoluto
         const amount = Math.abs(rawAmount);
+        
         const duplicate = transactions.some(
           (tx) => tx.date === date && Math.abs(tx.amount - amount) < 0.005 && tx.description.toLowerCase() === description,
         );
@@ -149,7 +173,7 @@ export function CsvImportModal({
           : accountId;
 
         return {
-          input: {
+          input: shouldImportInstallment ? {
             kind,
             description: (row[dsi] ?? "").trim(),
             amount,
@@ -161,10 +185,9 @@ export function CsvImportModal({
             note: isPayment 
               ? `Pagamento de fatura importado de ${fileName}.`
               : `Importado de ${fileName}.`,
-          },
+          } : null,
           duplicate,
-          invalid: null,
-          installments,
+          invalid: shouldImportInstallment ? null : "Parcela não importada (não é a última)",
           isPayment,
           isCreditCardPurchase,
         };
@@ -173,7 +196,7 @@ export function CsvImportModal({
     const duplicates = items.filter((i) => i.duplicate);
     const invalid = items.filter((i) => i.invalid);
     return { items, valid, duplicates, invalid };
-  }, [step, mapping, headers, rows, defaultKind, accountId, isCreditCardImport, cardId, transactions, fileName, cards]);
+  }, [step, mapping, headers, rows, defaultKind, accountId, isCreditCardImport, cardId, transactions, fileName, cards, onlyCurrentInvoice]);
 
   const stepIndex = step === "file" ? 0 : step === "mapping" ? 1 : 2;
 
@@ -229,31 +252,11 @@ export function CsvImportModal({
                   count += 1;
                 });
                 
-                // Processar compras do cartão de crédito com parcelas
+                // Processar compras do cartão de crédito (já filtradas para última parcela ou todas)
                 creditCardPurchases.forEach((item) => {
                   const input = item.input as TransactionInput;
-                  const installments = item.installments;
-                  
-                  if (installments && installments > 1) {
-                    // Apenas a primeira parcela vai para a fatura atual se onlyCurrentInvoice estiver ativado
-                    if (onlyCurrentInvoice) {
-                      // Criar apenas uma transação para a fatura atual
-                      importTransactions([{
-                        ...input,
-                        description: `${input.description} (1/${installments}) - Fatura atual`,
-                        installmentNumber: 1,
-                        installmentTotal: installments,
-                      }]);
-                      count += 1;
-                    } else {
-                      // Criar todas as parcelas
-                      createInstallmentPurchase(input, installments);
-                      count += installments;
-                    }
-                  } else {
-                    importTransactions([input]);
-                    count += 1;
-                  }
+                  importTransactions([input]);
+                  count += 1;
                 });
                 
                 // Processar outras transações (importação normal)
